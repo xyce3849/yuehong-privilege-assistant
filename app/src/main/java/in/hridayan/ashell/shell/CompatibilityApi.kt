@@ -72,6 +72,7 @@ class HttpCompatibilityApi(context: Context) : CompatibilityApi, AutoCloseable {
                 writer.write(
                     JSONObject(profile.toJson())
                         .put("moduleId", BuildConfig.SERVER_MODULE_ID)
+                        .put("matchMode", "exact")
                         .put("versionCode", BuildConfig.VERSION_CODE)
                         .put("versionName", BuildConfig.VERSION_NAME)
                         .put("deviceId", deviceId)
