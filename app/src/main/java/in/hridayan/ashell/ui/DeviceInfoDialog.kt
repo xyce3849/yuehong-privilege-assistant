@@ -3,6 +3,7 @@ package `in`.hridayan.ashell.ui
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -44,8 +45,9 @@ fun DeviceInfoDialog(onDismiss: () -> Unit) {
         Surface(
             modifier = Modifier.fillMaxWidth(),
             shape = MaterialTheme.shapes.extraLarge,
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            tonalElevation = 8.dp,
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.72f)),
+            tonalElevation = 0.dp,
         ) {
             Column(
                 modifier = Modifier.padding(24.dp),
@@ -58,7 +60,7 @@ fun DeviceInfoDialog(onDismiss: () -> Unit) {
                 )
                 HorizontalDivider()
 
-                InfoRow(stringResource(R.string.model), profile.model)
+                InfoRow(stringResource(R.string.model_name), profile.modelName)
                 InfoRow(stringResource(R.string.system_version), profile.systemVersion)
                 InfoRow(stringResource(R.string.kernel_version), profile.kernelVersion)
 

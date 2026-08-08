@@ -25,17 +25,12 @@ android {
     }
 
     defaultConfig {
-        applicationId = "in.hridayan.ashell"
+        applicationId = "in.ashell.yhroot"
         minSdk = 28
         targetSdk = 37
-        versionCode = 63
-        versionName = "v8.0.0-shizuku"
+        versionCode = 100
+        versionName = "v1.0"
 
-        buildConfigField(
-            "String",
-            "SERVER_ANNOUNCEMENT_ENDPOINT",
-            buildConfigString(serverProperty("announcementEndpoint")),
-        )
         buildConfigField(
             "String",
             "SERVER_COMPATIBILITY_ENDPOINT",
@@ -45,6 +40,31 @@ android {
             "String",
             "SERVER_MODULE_ID",
             buildConfigString(serverProperty("moduleId")),
+        )
+        buildConfigField(
+            "String",
+            "SERVER_PROTOCOL_V2_ENDPOINT",
+            buildConfigString(serverProperty("protocolV2Endpoint")),
+        )
+        buildConfigField(
+            "String",
+            "SERVER_CHANNEL_ENDPOINT",
+            buildConfigString(serverProperty("channelEndpoint")),
+        )
+        buildConfigField(
+            "String",
+            "SERVER_PROTOCOL_V2_PUBLIC_KEY",
+            buildConfigString(serverProperty("protocolV2PublicKey")),
+        )
+        buildConfigField(
+            "String",
+            "SERVER_PROTOCOL_V2_KEY_ID",
+            buildConfigString(serverProperty("protocolV2KeyId")),
+        )
+        buildConfigField(
+            "String",
+            "SERVER_CHANNEL_JOIN_URL",
+            buildConfigString(serverProperty("channelJoinUrl")),
         )
     }
 
@@ -57,7 +77,7 @@ android {
                     keystoreProperties.load(it)
                 }
 
-                storeFile = file(keystoreProperties["storeFile"] as String)
+                storeFile = rootProject.file(keystoreProperties["storeFile"] as String)
                 storePassword = keystoreProperties["storePassword"] as String
                 keyAlias = keystoreProperties["keyAlias"] as String
                 keyPassword = keystoreProperties["keyPassword"] as String
@@ -108,7 +128,7 @@ android {
 androidComponents {
     onVariants(selector().withBuildType("release")) { variant ->
         variant.outputs.forEach { output ->
-            output.outputFileName.set("月虹提权助手-v8.0.0-release.apk")
+            output.outputFileName.set("月虹提权助手-v1.0-release.apk")
         }
     }
 }
@@ -117,10 +137,11 @@ dependencies {
     implementation(libs.core.ktx)
     implementation(libs.activity.compose)
     implementation(platform(libs.compose.bom))
-    implementation("androidx.compose.foundation:foundation")
+    implementation(libs.compose.foundation)
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.graphics)
     implementation(libs.material3)
     implementation(libs.shizuku.api)
     implementation(libs.shizuku.provider)
+    implementation(libs.bcprov)
 }

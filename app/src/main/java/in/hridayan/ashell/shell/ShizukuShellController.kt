@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import rikka.shizuku.Shizuku
 import rikka.shizuku.ShizukuRemoteProcess
+import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
@@ -21,6 +22,11 @@ enum class ShizukuStatus {
 }
 
 data class OutputLine(val text: String, val isError: Boolean = false)
+
+data class ShellFileInstallResult(val exitCode: Int, val output: String)
+
+internal const val ASHELL_PAYLOAD_DESTINATION = "/data/local/tmp/preload.so"
+internal const val ASHELL_PAYLOAD_MODE = "0755"
 
 class ShizukuShellController : AutoCloseable {
     var status by mutableStateOf(ShizukuStatus.Checking)
@@ -62,6 +68,7 @@ class ShizukuShellController : AutoCloseable {
                 permissionRequestInFlight = false
                 if (result == PackageManager.PERMISSION_GRANTED) {
                     status = ShizukuStatus.Granted
+                    permissionRequiredNotice = false
                     val action = pendingPermissionAction
                     clearPendingPermissionActions()
                     action?.invoke()
@@ -93,13 +100,17 @@ class ShizukuShellController : AutoCloseable {
                 else -> ShizukuStatus.NeedsPermission
             }
         }.getOrDefault(ShizukuStatus.Unavailable)
-        postToMain { status = next }
+        postToMain {
+            status = next
+            if (next == ShizukuStatus.Granted) permissionRequiredNotice = false
+        }
     }
 
     fun requestPermission() {
         if (hasPermissionNow()) {
             permissionRequestInFlight = false
             status = ShizukuStatus.Granted
+            permissionRequiredNotice = false
             val action = pendingPermissionAction
             clearPendingPermissionActions()
             action?.invoke()
@@ -233,6 +244,59 @@ class ShizukuShellController : AutoCloseable {
         val normalized = text.trimEnd()
         if (normalized.isEmpty()) return
         postToMain { output += OutputLine(normalized, isError) }
+    }
+
+    @Suppress("DEPRECATION")
+    fun removeExistingPayload(): ShellFileInstallResult {
+        val remote = Shizuku.newProcess(
+            arrayOf(
+                "sh",
+                "-c",
+                "rm -f -- '$ASHELL_PAYLOAD_DESTINATION' && " +
+                    "[ ! -e '$ASHELL_PAYLOAD_DESTINATION' ] && [ ! -L '$ASHELL_PAYLOAD_DESTINATION' ]",
+            ),
+            null,
+            "/",
+        )
+        return try {
+            val stdout = remote.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            val stderr = remote.errorStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            ShellFileInstallResult(
+                exitCode = remote.waitFor(),
+                output = listOf(stdout, stderr).filter(String::isNotBlank).joinToString("\n"),
+            )
+        } finally {
+            runCatching { remote.destroy() }
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    fun installPayload(source: File): ShellFileInstallResult {
+        require(source.isFile) { "Downloaded resource file is missing" }
+        val quotedDestination = "'$ASHELL_PAYLOAD_DESTINATION'"
+        val remote = Shizuku.newProcess(
+            arrayOf(
+                "sh",
+                "-c",
+                "cat > $quotedDestination && chmod $ASHELL_PAYLOAD_MODE $quotedDestination && " +
+                    "[ -f $quotedDestination ] && [ -x $quotedDestination ]",
+            ),
+            null,
+            "/",
+        )
+        return try {
+            source.inputStream().use { input ->
+                remote.outputStream.use { output -> input.copyTo(output) }
+            }
+            val stdout = remote.inputStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            val stderr = remote.errorStream.bufferedReader(Charsets.UTF_8).use { it.readText() }
+            ShellFileInstallResult(
+                exitCode = remote.waitFor(),
+                output = listOf(stdout, stderr).filter(String::isNotBlank).joinToString("\n"),
+            )
+        } finally {
+            runCatching { remote.destroy() }
+        }
     }
 
     private fun handleDirectoryCommand(command: String): String? {

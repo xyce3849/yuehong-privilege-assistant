@@ -6,25 +6,29 @@ import java.util.Locale
 import java.util.concurrent.TimeUnit
 
 data class DeviceProfile(
-    val model: String,
+    val modelName: String,
     val systemVersion: String,
     val kernelVersion: String,
 ) {
     fun toJson(): String = buildString {
         appendLine("{")
-        appendLine("  \"model\": \"${model.jsonEscape()}\",")
-        appendLine("  \"systemVersion\": \"${systemVersion.jsonEscape()}\",")
-        appendLine("  \"kernelVersion\": \"${kernelVersion.jsonEscape()}\"")
+        appendLine("  \"modelName\": \"${modelName.jsonEscape()}\",")
+        appendLine("  \"systemVersion\": \"${systemVersion.jsonEscape()}\"")
         append("}")
     }
 
     companion object {
         fun collect(): DeviceProfile {
             // 使用独立原生命令读取系统属性，避免仅在当前应用进程内生效的 Build/getprop Hook。
-            val model = firstSystemProperty(
+            val modelName = firstSystemProperty(
                 "ro.product.marketname",
+                "ro.product.market_name",
                 "ro.product.vendor.marketname",
+                "ro.product.vendor.market_name",
+                "ro.vendor.product.marketname",
+                "ro.vendor.product.market.name",
                 "ro.product.odm.marketname",
+                "ro.product.odm.market_name",
                 "ro.product.system.marketname",
                 "ro.config.marketing_name",
                 "ro.vendor.oplus.market.name",
@@ -46,11 +50,6 @@ data class DeviceProfile(
 
             val systemVersionProperties = when {
                 vendorIdentity.containsAny("oneplus", "oppo", "oplus", "realme") -> arrayOf(
-                    "ro.build.version.ota",
-                    "ro.build.version.oplusrom",
-                    "ro.build.version.opporom",
-                    "ro.rom.version",
-                    "ro.build.version.incremental",
                     "ro.build.display.id",
                 )
 
@@ -157,7 +156,7 @@ data class DeviceProfile(
                 .ifBlank { runCatching { Os.uname().release }.getOrNull().clean() }
 
             return DeviceProfile(
-                model = model,
+                modelName = modelName,
                 systemVersion = systemVersion,
                 kernelVersion = kernelVersion,
             )
