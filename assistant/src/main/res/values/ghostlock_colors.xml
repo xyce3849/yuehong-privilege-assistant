@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ghostlock_bg">#FFF7F7F9</color>
+    <color name="ghostlock_surface">#FFFFFFFF</color>
+    <color name="ghostlock_surface_pressed">#FFF0F0F3</color>
+    <color name="ghostlock_text_primary">#FF1B1B1F</color>
+    <color name="ghostlock_text_secondary">#FF5F6068</color>
+    <color name="ghostlock_accent">#FF4F46E5</color>
+    <color name="ghostlock_accent_pressed">#FF4038C8</color>
+    <color name="ghostlock_accent_disabled">#FFA9A6DF</color>
+    <color name="ghostlock_border">#FFD7D7DD</color>
+    <color name="ghostlock_divider">#FFEAEAEF</color>
+    <color name="ghostlock_status_success">#FF047857</color>
+    <color name="ghostlock_status_success_bg">#FFD1FAE5</color>
+    <color name="ghostlock_status_error">#FFB91C1C</color>
+    <color name="ghostlock_status_error_bg">#FFFEE2E2</color>
+    <color name="ghostlock_log_bg">#FF19191C</color>
+    <color name="ghostlock_log_border">#00000000</color>
+    <color name="ghostlock_log_divider">#33FFFFFF</color>
+    <color name="ghostlock_log_text">#FFE5E1E6</color>
+    <color name="ghostlock_log_title">#FFC7C5CC</color>
+    <color name="ghostlock_launcher_icon_background">#FFF1F1F4</color>
+</resources>

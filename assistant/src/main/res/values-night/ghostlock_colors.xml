@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ghostlock_bg">#FF08090D</color>
+    <color name="ghostlock_surface">#FF11131A</color>
+    <color name="ghostlock_surface_pressed">#FF20232D</color>
+    <color name="ghostlock_text_primary">#FFF0F0F7</color>
+    <color name="ghostlock_text_secondary">#FFC8CAD6</color>
+    <color name="ghostlock_accent">#FFAEB4FF</color>
+    <color name="ghostlock_accent_pressed">#FF969DFF</color>
+    <color name="ghostlock_accent_disabled">#FF343846</color>
+    <color name="ghostlock_border">#FF343846</color>
+    <color name="ghostlock_divider">#FF20232D</color>
+    <color name="ghostlock_status_success">#FF34D399</color>
+    <color name="ghostlock_status_success_bg">#FF0F3D2E</color>
+    <color name="ghostlock_status_error">#FFF87171</color>
+    <color name="ghostlock_status_error_bg">#FF4C1D1D</color>
+    <color name="ghostlock_log_bg">#FF0B0D12</color>
+    <color name="ghostlock_log_border">#FF343846</color>
+    <color name="ghostlock_log_text">#FFF0F0F7</color>
+    <color name="ghostlock_log_title">#FFC8CAD6</color>
+</resources>

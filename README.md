@@ -1,22 +1,41 @@
 # 月虹提权助手
 
-月虹提权助手是基于 [aShellYou](https://github.com/DP-Hridayan/aShellYou) 修改的 Android 应用。本项目不是上游官方版本；原项目作者为 DP Hridayan。
+月虹提权助手是一个内置 Stellar Manager、Server 与 API 的 Android 提权工作台。应用不再依赖外部 Shizuku 或外部 Stellar 管理器，可直接在应用内通过 Android 无线调试完成 Stellar 自激活，再使用 `Stellar.newProcess()` 执行命令。
 
-本衍生版本保留 Shizuku 本地 ADB shell，并增加签名版本验证、QQ 频道设备授权、设备信息采集、远程精确兼容性匹配、设备专属提权命令执行、真实 Root 状态检测以及可选的 KernelSU 越狱模式激活流程。最近修改日期：2026-08-09。
+- 应用 ID：`roro.stellar.yuehong`
+- 版本：`v1.2`（`versionCode 120`）
+- 最低系统：Android 9（API 28）
+- 目标系统：Android API 37
+- ABI：`arm64-v8a`
 
-正式应用包名为 `in.ashell.yhroot`。由于包名不同，不能直接覆盖安装使用旧包名 `in.hridayan.ashell` 的版本，首次安装后需要重新完成频道与 Shizuku 授权。
+## 运行流程
 
-## 开源许可
+1. 启动时验证服务端签名公告、客户端版本与频道授权。
+2. 检查内置 Stellar Binder 和 `stellar` 权限。
+3. 服务未启动时进入应用内无线调试自激活页；配对、连接和服务启动均由内置 Stellar 组件完成。
+4. 服务已启动但权限未确认时，使用 Stellar 自身授权页完成显式授权。
+5. 授权后进入命令工作台，终端、在线提权和本地提权文件都通过 `Stellar.newProcess()` 执行。
+6. 在线提权继续使用 DMKPZ 精确设备匹配、签名响应和多线路资源回退；本地文件模式完全不请求服务器。
+7. 提权成功后可按原流程检测并激活 KernelSU；KernelSU 接管后的 `su` 不可用时立即停止后续命令。
 
-本项目依照 GNU General Public License v3.0（GPL-3.0）发布。完整许可文本见 [LICENSE.md](LICENSE.md)，上游归属和本版本修改摘要见 [NOTICE.md](NOTICE.md)。再分发本应用或修改版本时，请继续遵守 GPL-3.0 并提供对应源代码。
+应用保留正式版包名；使用相同证书签名时可覆盖安装现有正式版。公开源码不附带发行证书。整合工程未使用 Stellar 上游的 `sharedUserId`。
 
-## 公开版与服务器配置
+## 源码结构
 
-公开源码保留通用的 HTTPS 客户端接口和响应解析代码，但不包含任何运营服务器地址、私有模块标识、服务端源码、payload、签名文件或部署配置。
+```text
+assistant/  月虹提权助手 UI、启动验证、设备匹配、多线路下载和提权业务
+manager/    Android 宿主、自激活界面、无线调试、授权与 Binder 接收组件
+server/     以 ADB shell 或 Root 身份运行的 Stellar 特权服务
+api/        随工程固定版本交付的 Stellar API、AIDL、Provider 与共享代码
+shizuku/    Stellar 内部保留的 Shizuku 兼容层
+LICENSES/   第三方许可证文本
+```
 
-不提供私有配置时，项目仍可编译；所有服务器接口为空，应用不会向运营服务器发起请求，并会保持在安全启动验证页，不能进入本地 ADB。
+`assistant` 是 Android Library，最终由 `manager` 打包成唯一 APK。桌面唯一入口仍是月虹提权助手的 `roro.stellar.yuehong.activities.MainActivity`；Stellar 原管理器首页、更新器入口和安装未知 APK 权限不进入发行 Manifest。
 
-如需接入自行管理的兼容性服务，可将 `server.properties.example` 复制为根目录下的 `server.properties`，然后填写：
+## 服务器配置
+
+复制 `server.properties.example` 为根目录下的 `server.properties`，填写：
 
 ```properties
 compatibilityEndpoint=
@@ -25,54 +44,80 @@ protocolV2Endpoint=
 channelEndpoint=
 protocolV2PublicKey=
 protocolV2KeyId=
+romProtocolV2Endpoint=
+romProtocolV2PublicKey=
+romProtocolV2KeyId=
 channelJoinUrl=
+updateUrl=
 ```
 
-所有接口地址必须使用 HTTPS。`protocolV2PublicKey` 和 `protocolV2KeyId` 必须与 DMKPZ 的发布签名密钥对应。`server.properties` 已被 Git 和源码交付脚本排除，请勿提交真实地址或运营配置。
+`moduleId` 应填写为构建者自己服务端配置的模块 ID；示例文件不携带月虹正式服务的模块 ID 或其他运营配置。
 
-## 主要功能
-
-- 公告与签名版本验证、频道设备授权、Shizuku 授权、本地 ADB 四阶段启动流程；已有频道/Shizuku 权限时自动跳过对应交互，权限失效时自动退回保护页
-- 启动响应使用固定的服务端 Ed25519 公钥验签，并校验模块 ID、设备 ID、请求 nonce、有效期和精确 `versionCode`；接口缺失、网络失败、签名无效或版本不一致时均禁止进入本地 ADB
-- 安装级 Ed25519 设备密钥用于频道授权绑定；密钥种子使用 Android Keystore 中不可导出的 AES 密钥加密保存，并自动迁移旧版明文首选项；未授权时显示验证码，频道确认后必须再次取得服务端签名授权结果
-- 各页面使用前后滑动、淡入淡出、轻微缩放和状态切换动画，主要按钮带按压回弹反馈
-- 品牌化公告加载页与公告确认卡片，支持深色模式和独立的强制更新警示状态
-- 签名公告加载完成后强制阅读 5 秒，倒计时结束前继续按钮保持禁用
-- 独立 Shizuku 权限页支持自动申请、拒绝后的内联说明、服务未运行提示及重新检查
-- 重新设计的本地 ADB 工作台，包含连接状态、提权阶段、实时终端输出、快捷命令和独立运行/停止控制
-- 通过独立系统命令采集机型名称、厂商系统版本和真实内核 release，降低应用进程内属性伪装的影响；OPPO、一加和真我只读取 `ro.build.display.id` 作为系统版本号，其他品牌继续使用各自的属性顺序
-- 通过兼容性服务选择唯一命令档案，并接收该档案的设备专属提权资源；兼容性请求必须通过已授权设备私钥、时间戳和一次性 nonce 验证，命令、su 路径及资源元数据整体通过服务端 Ed25519 签名后客户端才会采用
-- 服务端资源采用标准 DMKPZ 结构：每个资源条目自身附带一份设备档案，不使用“档案内再嵌套多个资源”的结构
-- 客户端和服务端通过 `matchMode: exact` 强制使用区分大小写的精确兼容档案，拒绝通配符模式的旧服务端响应
-- 只有服务端签名的 HTTP 200 业务响应返回 `errorCode=device_not_supported` 且 `compatible=false` 时，客户端才显示专用未适配提示；Nginx 404、未签名响应或其他服务器错误不会被误判
-- 对服务端下发的单条设备专属 shell 提权命令进行 UTF-8 字节长度和危险分隔符双重校验
-- 服务端资源只返回名称、HTTPS 下载地址、SHA-256 和大小；客户端先删除旧文件，再将唯一资源固定写入 `/data/local/tmp/preload.so` 并设置 `0755`，任一步骤失败都会停止流程
-- 每次提权流程只执行一次服务端命令，随后通过服务端档案返回的 `suPath` 执行 `-c 'id'`；Root 判定只检查输出中是否出现 `uid=0`，不使用该检查命令的退出码
-- Root 验证成功后询问用户是否激活 KernelSU 越狱模式；拒绝时直接关闭弹窗
-- 用户同意后先用该档案的 `suPath` 执行客户端固定 `late-load`；成功后先延迟 1 秒等待 KernelSU 接管，再执行策略加载和飞行模式操作
-- 飞行模式关闭使用兜底清理逻辑，中途失败时仍会尝试恢复
-- KernelSU 激活与飞行模式恢复全部成功后，最后通过 KernelSU 清空 `/data/local/tmp` 中的普通及隐藏内容
-- 提权失败后直接恢复可运行状态，不再显示额外的“重置”按钮
-- 中英文界面、系统动态配色及窄屏滚动布局
+公开源码不包含运营域名、接口路径、模块标识、公钥、key ID、频道链接、更新地址、签名口令或密钥库。需要联网功能时，由构建者在本地复制示例文件后填写自己的 HTTPS 服务和协议密钥。`server.properties`、签名属性和密钥库不会进入公开源码包。
 
 ## 构建
 
-需要 JDK 17 和 Android SDK。在项目根目录执行：
+需要：
+
+- JDK 21
+- Android SDK Platform 37.0
+- Android SDK Build Tools 36.0.0
+- Android NDK `29.0.13113456`
+- CMake 3.22.1 或更高版本
+
+Windows 中文路径下请使用工程自带脚本。脚本会创建一个仅在构建期间存在的 ASCII 临时目录联接，避免 CMake/Ninja 的中文路径限制，不会复制源码：
+
+构建调试版：
 
 ```powershell
-.\gradlew.bat :app:assembleRelease
+.\tools\build_android.ps1 -Variant Debug
 ```
 
-Release 签名从根目录的 `keystore.properties` 读取；该文件和 `*.jks` 均被 Git 忽略。生成文件为：
+构建正式版：
+
+```powershell
+.\tools\build_android.ps1 -Variant Release
+```
+
+若工程位于纯 ASCII 路径，也可直接执行 `./gradlew :manager:assembleRelease`。
+
+Release 签名读取根目录下由构建者自行创建的 `keystore.properties`；公开源码不附带任何发行密钥或签名属性。主要产物会同步到：
 
 ```text
-app/build/outputs/apk/release/月虹提权助手-v1.0-release.apk
+out/apk/月虹提权助手-v1.2-release.apk
+out/mapping/mapping-v1.2.txt
 ```
 
-未配置签名时，可执行 `:app:assembleDebug` 构建调试版。
+## 安全边界
 
-## 安全说明
+- 自激活只负责启动 ADB shell/Root 身份的 Stellar 服务，不会让 Android 应用进程本身变成 Root。
+- 助手在每次执行前同时检查 Binder 存活状态和 Stellar 授权状态。
+- 在线业务响应、资源元数据和后续线路票据继续执行 Ed25519 与 SHA-256 校验。
+- 本地文件先复制到应用私有缓存，再由 Stellar 写入 `/data/local/tmp/preload.so`；不会修改用户选择的原文件。
+- 正式运营接口仍校验应用 ID 和正式签名证书；自行重签名的构建不会连接正式服务。
 
-正式版在启动验证、频道授权、精确兼容性匹配和资源下载前都会校验当前 APK 的包名及签名证书 SHA-256；非官方签名版本不会连接运营服务器。此检查用于识别官方发行身份，不能阻止 GPL 许可允许的源码修改与重新签名。
+## 许可与归属
 
-本项目涉及高权限操作，只应在您拥有或获授权测试的设备上使用。兼容性服务返回的设备专属命令本身负责完成提权，客户端会以 Shizuku shell 身份直接执行它，因此必须使用可信 HTTPS 服务并逐条审查后台配置。只有服务端档案返回的 `suPath` 执行 `-c 'id'` 后在输出中确认 `uid=0` 才会显示成功并提供 KernelSU 激活选项；该检查命令的退出码只记录、不参与成功判定。公开源码不提供实际提权命令档案或 payload，也不保证特定设备或内核可用。
+本工程是一个由不同许可证文件组成的组合项目。组合发行版以 MPL-2.0 为顶层许可证，原有文件继续保留各自许可证：
+
+- 月虹提权助手集成与修改部分遵循 MPL-2.0。
+- Stellar 与月虹修改文件遵循 MPL-2.0，完整文本位于 [LICENSES/MPL-2.0.txt](LICENSES/MPL-2.0.txt)。
+- Stellar 中源自 Shizuku 的文件保留 Apache-2.0。
+- GhostLock 源码保留 Apache-2.0。
+
+根目录 [LICENSE](LICENSE) 为 MPL-2.0 完整文本。完整归属与修改说明见 [NOTICE.md](NOTICE.md)，第三方许可文本见 [LICENSES](LICENSES)。发布前可运行 `tools/verify_public_source.ps1` 检查配置、密钥文件和构建产物是否被误加入。
+## GhostLock 独立页面
+
+启动验证与频道授权通过后，应用先进入提权模式选择页：
+
+- **内核 6.6 / 6.12 · GhostLock**：无需 Stellar 激活，按精确 `uname -r` 使用内置或导入 offsets；支持 `boot.img`、骁龙 `boot.img + xbl_config.img`、天玑 `boot.img` 与完整 OTA 链接。
+- **通用提权助手 · Stellar**：继续保留机型匹配、服务端多线路提权文件、完全本地文件、自激活和命令控制台。
+
+GhostLock 完整上游源码固定在 `third_party/ghostlock`。更新其原生组件后执行：
+
+```powershell
+.\tools\build_ghostlock.ps1 -NdkVersion 29.0.13113456 -Offline
+python .\tools\generate_ghostlock_kernels.py
+```
+
+生成的 arm64 文件固定写入 `assistant/src/main/jniLibs/arm64-v8a/libghostlock.so` 与 `libextract.so`；Android 工程仍由 `tools/build_android.ps1` 构建。

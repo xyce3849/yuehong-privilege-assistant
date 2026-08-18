@@ -1,0 +1,61 @@
+import java.util.Properties
+
+plugins {
+    id 'com.android.library'
+    id 'org.jetbrains.kotlin.android'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+def serverProperties = new Properties()
+def serverPropertiesFile = rootProject.file("server.properties")
+if (serverPropertiesFile.exists()) {
+    serverPropertiesFile.withInputStream { serverProperties.load(it) }
+}
+
+def serverProperty = { String name -> serverProperties.getProperty(name, "").trim() }
+def buildConfigString = { String value ->
+    '"' + value.replace('\\', '\\\\').replace('"', '\\"') + '"'
+}
+
+android {
+    namespace 'roro.stellar.yuehong'
+
+    defaultConfig {
+        minSdk 28
+
+        buildConfigField 'String', 'APPLICATION_ID', '"roro.stellar.yuehong"'
+        buildConfigField 'int', 'VERSION_CODE', '120'
+        buildConfigField 'String', 'VERSION_NAME', '"v1.2"'
+        buildConfigField 'String', 'SERVER_COMPATIBILITY_ENDPOINT', buildConfigString(serverProperty('compatibilityEndpoint'))
+        buildConfigField 'String', 'SERVER_MODULE_ID', buildConfigString(serverProperty('moduleId'))
+        buildConfigField 'String', 'SERVER_PROTOCOL_V2_ENDPOINT', buildConfigString(serverProperty('protocolV2Endpoint'))
+        buildConfigField 'String', 'SERVER_CHANNEL_ENDPOINT', buildConfigString(serverProperty('channelEndpoint'))
+        buildConfigField 'String', 'SERVER_PROTOCOL_V2_PUBLIC_KEY', buildConfigString(serverProperty('protocolV2PublicKey'))
+        buildConfigField 'String', 'SERVER_PROTOCOL_V2_KEY_ID', buildConfigString(serverProperty('protocolV2KeyId'))
+        buildConfigField 'String', 'ROM_PROTOCOL_V2_ENDPOINT', buildConfigString(serverProperty('romProtocolV2Endpoint'))
+        buildConfigField 'String', 'ROM_PROTOCOL_V2_PUBLIC_KEY', buildConfigString(serverProperty('romProtocolV2PublicKey'))
+        buildConfigField 'String', 'ROM_PROTOCOL_V2_KEY_ID', buildConfigString(serverProperty('romProtocolV2KeyId'))
+        buildConfigField 'String', 'SERVER_CHANNEL_JOIN_URL', buildConfigString(serverProperty('channelJoinUrl'))
+        buildConfigField 'String', 'SERVER_UPDATE_URL', buildConfigString(serverProperty('updateUrl'))
+
+        consumerProguardFiles 'proguard-rules.pro'
+    }
+
+    buildFeatures {
+        compose true
+        buildConfig true
+    }
+
+    kotlin {
+        jvmToolchain(21)
+    }
+}
+
+dependencies {
+    implementation project(':api')
+    implementation managerLibs.bundles.kotlinxCoroutines
+    implementation managerLibs.bundles.core
+    implementation platform(managerLibs.composeBom)
+    implementation managerLibs.bundles.composeUi
+    implementation 'org.bouncycastle:bcprov-jdk18on:1.80.2'
+}

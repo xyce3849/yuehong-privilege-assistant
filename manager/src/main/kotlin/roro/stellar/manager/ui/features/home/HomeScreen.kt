@@ -1,0 +1,201 @@
+package roro.stellar.manager.ui.features.home
+
+import android.annotation.SuppressLint
+import roro.stellar.manager.compat.BuildUtils.atLeast30
+import android.widget.Toast
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.material3.TopAppBarState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.livedata.observeAsState
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.stringResource
+import roro.stellar.Stellar
+import roro.stellar.manager.R
+import roro.stellar.manager.compat.ClipboardUtils
+import roro.stellar.manager.startup.command.Starter
+import roro.stellar.manager.ui.components.LocalScreenConfig
+import roro.stellar.manager.ui.components.StellarDialog
+import roro.stellar.manager.ui.navigation.components.StandardLargeTopAppBar
+import roro.stellar.manager.ui.navigation.components.createTopAppBarScrollBehavior
+import roro.stellar.manager.ui.theme.AppSpacing
+import roro.stellar.manager.util.EnvironmentUtils
+import roro.stellar.manager.util.UserHandleCompat
+
+@SuppressLint("LocalContextGetResourceValueCall")
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun HomeScreen(
+    topAppBarState: TopAppBarState,
+    homeViewModel: HomeViewModel,
+    onNavigateToStarter: (isRoot: Boolean, host: String?, port: Int, hasSecureSettings: Boolean) -> Unit = { _, _, _, _ -> }
+) {
+    val scrollBehavior = createTopAppBarScrollBehavior(topAppBarState)
+    val context = LocalContext.current
+    val serviceStatusResource by homeViewModel.serviceStatus.observeAsState()
+    val screenConfig = LocalScreenConfig.current
+
+    val serviceStatus = serviceStatusResource?.data
+
+    val isRunning = serviceStatus?.isRunning ?: false
+    val isRoot = serviceStatus?.uid == 0
+    val isPrimaryUser = UserHandleCompat.myUserId() == 0
+    val hasRoot = EnvironmentUtils.isRooted()
+
+    var showPowerDialog by remember { mutableStateOf(false) }
+    var showAdbCommandDialog by remember { mutableStateOf(false) }
+    var showAdbRestrictedFeaturesDialog by remember { mutableStateOf(false) }
+
+    val gridColumns = screenConfig.gridColumns
+
+    Scaffold(
+        modifier = Modifier
+            .fillMaxSize()
+            .nestedScroll(scrollBehavior.nestedScrollConnection),
+        topBar = {
+            StandardLargeTopAppBar(
+                title = "Stellar",
+                scrollBehavior = scrollBehavior
+            )
+        }
+    ) { paddingValues ->
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(gridColumns),
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(
+                top = paddingValues.calculateTopPadding() + AppSpacing.topBarContentSpacing,
+                bottom = AppSpacing.screenBottomPadding,
+                start = AppSpacing.screenHorizontalPadding,
+                end = AppSpacing.screenHorizontalPadding
+            ),
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.itemSpacing),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.itemSpacing)
+        ) {
+            item(span = { GridItemSpan(gridColumns) }) {
+                ServerStatusCard(
+                    isRunning = isRunning,
+                    isRoot = isRoot,
+                    apiVersion = serviceStatus?.apiVersion ?: 0,
+                    onStopClick = { showPowerDialog = true }
+                )
+            }
+
+            if (isRunning && !serviceStatus.permission) {
+                item(span = { GridItemSpan(gridColumns) }) {
+                    AdbRestrictedHintCard(
+                        onViewClick = { showAdbRestrictedFeaturesDialog = true }
+                    )
+                }
+            }
+
+            if (isPrimaryUser) {
+                if (hasRoot) {
+                    item {
+                        StartRootCard(
+                            isRestart = isRunning && isRoot,
+                            onStartClick = { onNavigateToStarter(true, null, 0, false) }
+                        )
+                    }
+                }
+
+                if (atLeast30 || EnvironmentUtils.getAdbTcpPort() > 0) {
+                    item {
+                        StartWirelessAdbCard(
+                            onStartClick = { onNavigateToStarter(false, "127.0.0.1", 0, false) }
+                        )
+                    }
+                }
+
+                item {
+                    StartWiredAdbCard(
+                        onButtonClick = { showAdbCommandDialog = true }
+                    )
+                }
+
+                if (!hasRoot) {
+                    item {
+                        StartRootCard(
+                            isRestart = isRunning && isRoot,
+                            onStartClick = {
+                                Toast.makeText(context, context.getString(R.string.no_root_permission), Toast.LENGTH_SHORT).show()
+                            }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    if (showPowerDialog) {
+        StellarDialog(
+            onDismissRequest = { showPowerDialog = false },
+            title = stringResource(R.string.stop_service),
+            confirmText = stringResource(R.string.stop),
+            dismissText = stringResource(R.string.restart),
+            onConfirm = {
+                if (Stellar.pingBinder()) {
+                    try { Stellar.exit() } catch (_: Throwable) {}
+                }
+                showPowerDialog = false
+            },
+            onDismiss = {
+                homeViewModel.restartService()
+                showPowerDialog = false
+            }
+        ) {
+            Text(
+                text = stringResource(R.string.stop_service_message),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
+    if (showAdbCommandDialog) {
+        StellarDialog(
+            onDismissRequest = { showAdbCommandDialog = false },
+            title = stringResource(R.string.view_command),
+            confirmText = stringResource(R.string.copy),
+            dismissText = stringResource(R.string.close),
+            onConfirm = {
+                ClipboardUtils.put(context, Starter.adbCommand)
+                Toast.makeText(context, context.getString(R.string.copied_to_clipboard), Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = { showAdbCommandDialog = false }
+        ) {
+            Text(
+                text = Starter.adbCommand,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
+    if (showAdbRestrictedFeaturesDialog) {
+        StellarDialog(
+            onDismissRequest = { showAdbRestrictedFeaturesDialog = false },
+            title = stringResource(R.string.adb_restricted_features_title),
+            confirmText = stringResource(R.string.close),
+            onConfirm = { showAdbRestrictedFeaturesDialog = false },
+            showDismissButton = false
+        ) {
+            RestrictedFeatureList(
+                features = serviceStatus?.featureStates ?: emptyList()
+            )
+        }
+    }
+}

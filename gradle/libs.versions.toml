@@ -1,25 +1,11 @@
 [versions]
-activityCompose = "1.13.0"
-agp = "9.2.1"
-composeBom = "2026.06.01"
-coreKtx = "1.19.0"
-kotlin = "2.4.10"
-material3 = "1.5.0-alpha24"
-shizuku = "13.1.0"
-bouncycastle = "1.85.2"
-
-[plugins]
-android-application = { id = "com.android.application", version.ref = "agp" }
-kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+hiddenApi = "4.4.0"
+refine = "4.4.0"
 
 [libraries]
-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
-compose-foundation = { group = "androidx.compose.foundation", name = "foundation" }
-compose-ui = { group = "androidx.compose.ui", name = "ui" }
-compose-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
-material3 = { group = "androidx.compose.material3", name = "material3", version.ref = "material3" }
-bcprov = { group = "org.bouncycastle", name = "bcprov-jdk15to18", version.ref = "bouncycastle" }
-shizuku-api = { module = "dev.rikka.shizuku:api", version.ref = "shizuku" }
-shizuku-provider = { module = "dev.rikka.shizuku:provider", version.ref = "shizuku" }
+hidden-compat = { module = "dev.rikka.hidden:compat", version.ref = "hiddenApi" }
+hidden-stub = { module = "dev.rikka.hidden:stub", version.ref = "hiddenApi" }
+
+refine-runtime = { module = "dev.rikka.tools.refine:runtime", version.ref = "refine" }
+refine-annotation = { module = "dev.rikka.tools.refine:annotation", version.ref = "refine" }
+refine-annotation-processor = { module = "dev.rikka.tools.refine:annotation-processor", version.ref = "refine" }

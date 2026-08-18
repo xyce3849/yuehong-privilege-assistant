@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.YueHong.GhostLock" parent="@android:style/Theme.DeviceDefault.DayNight">
+        <item name="android:windowActionBar">false</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowLightStatusBar">@bool/ghostlock_window_light_status_bar</item>
+        <item name="android:windowLightNavigationBar">@bool/ghostlock_window_light_navigation_bar</item>
+        <item name="android:windowBackground">@color/ghostlock_bg</item>
+        <item name="android:colorPrimary">@color/ghostlock_accent</item>
+        <item name="android:colorAccent">@color/ghostlock_accent</item>
+        <item name="android:textColorPrimary">@color/ghostlock_text_primary</item>
+        <item name="android:textColorSecondary">@color/ghostlock_text_secondary</item>
+    </style>
+</resources>
