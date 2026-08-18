@@ -36,9 +36,9 @@ LICENSES/   第三方许可证文本
 ## 上游项目
 
 - [Stellar](https://github.com/roro2239/Stellar)：内置的 Manager、Server 与核心服务框架。
-- [Stellar API](https://github.com/roro2239/Stellar-API)：工程内固定版本的 API、AIDL、Provider 与共享接口。
 - [GhostLock-App](https://github.com/YuKongA/ghostlock-app)：GhostLock 原生提权核心、OTA 解析器和内核偏移资源。
-- [Shizuku](https://github.com/RikkaApps/Shizuku)：Stellar 内部保留的兼容层来源。
+
+其他第三方代码的许可证和归属见 [NOTICE.md](NOTICE.md) 与 [LICENSES](LICENSES)。
 
 ## 服务器配置
 
