@@ -33,6 +33,13 @@ LICENSES/   第三方许可证文本
 
 `assistant` 是 Android Library，最终由 `manager` 打包成唯一 APK。桌面唯一入口仍是月虹提权助手的 `roro.stellar.yuehong.activities.MainActivity`；Stellar 原管理器首页、更新器入口和安装未知 APK 权限不进入发行 Manifest。
 
+## 上游项目
+
+- [Stellar](https://github.com/roro2239/Stellar)：内置的 Manager、Server 与核心服务框架。
+- [Stellar API](https://github.com/roro2239/Stellar-API)：工程内固定版本的 API、AIDL、Provider 与共享接口。
+- [GhostLock-App](https://github.com/YuKongA/ghostlock-app)：GhostLock 原生提权核心、OTA 解析器和内核偏移资源。
+- [Shizuku](https://github.com/RikkaApps/Shizuku)：Stellar 内部保留的兼容层来源。
+
 ## 服务器配置
 
 复制 `server.properties.example` 为根目录下的 `server.properties`，填写：
