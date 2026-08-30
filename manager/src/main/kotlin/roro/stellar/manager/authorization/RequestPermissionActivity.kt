@@ -114,6 +114,17 @@ class RequestPermissionActivity : ComponentActivity() {
         }
     }
 
+    private fun resolveKnownSourcePackage(uid: Int): String? {
+        val packages = runCatching { packageManager.getPackagesForUid(uid) ?: emptyArray() }
+            .getOrDefault(emptyArray())
+
+        val knownManagers = listOf(
+            "me.weishu.kernelsu",
+            "com.kowx712.kowsupro"
+        )
+        return knownManagers.firstOrNull { it in packages }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -128,7 +139,11 @@ class RequestPermissionActivity : ComponentActivity() {
         val requestCode = intent.getIntExtra("requestCode", -1)
         val permission = intent.getStringExtra("permission")
             ?: StellarApiConstants.PERMISSION_STELLAR
+        // Some KernelSU Manager forks do not pass sourcePackage when requesting
+        // authorization directly. Recover the requester package from the UID so
+        // the authorization flow can return to its Manager UI after approval.
         val sourcePackage = intent.getStringExtra(EXTRA_SOURCE_PACKAGE)
+            ?: resolveKnownSourcePackage(uid)
 
         @Suppress("DEPRECATION")
         val ai = intent.getParcelableExtra<ApplicationInfo>("applicationInfo")
