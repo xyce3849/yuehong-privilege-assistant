@@ -115,6 +115,7 @@ public class GhostLockActivity extends ComponentActivity {
     private Button copyButton;
     private Button otaButton;
     private Button autoRootButton;
+    private Button importOffsetsButton;
     private EditText otaUrlInput;
     private GhostLockOtaApi ghostLockOtaApi;
     private View rootView;
@@ -407,6 +408,7 @@ public class GhostLockActivity extends ComponentActivity {
         copyButton = findViewById(R.id.copyButton);
         otaButton = findViewById(R.id.otaButton);
         autoRootButton = findViewById(R.id.autoRootButton);
+        importOffsetsButton = findViewById(R.id.importOffsetsButton);
         otaUrlInput = findViewById(R.id.otaUrlInput);
         ghostLockOtaApi = new GhostLockOtaApi(this);
         DeviceInfoEntry.bind(this, deviceInfoButtonHost);
@@ -421,7 +423,8 @@ public class GhostLockActivity extends ComponentActivity {
         copyButton.setOnClickListener(v -> copyLogs());
         otaButton.setOnClickListener(v -> promptParseUrl());
         autoRootButton.setOnClickListener(v -> startAutomaticPrivilege());
-        installPressMotion(copyButton, otaButton, autoRootButton);
+        importOffsetsButton.setOnClickListener(v -> importOffsets());
+        installPressMotion(copyButton, otaButton, autoRootButton, importOffsetsButton);
         playEntryMotion();
     }
 
