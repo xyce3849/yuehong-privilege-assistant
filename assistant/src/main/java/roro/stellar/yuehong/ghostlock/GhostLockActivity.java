@@ -87,6 +87,7 @@ public class GhostLockActivity extends ComponentActivity {
     private static final String KSU_ACTIVATION_ASSET = "yhroot_ksu_activate.sh";
     private static final String KSU_ACTIVATION_SCRIPT = ".ghostlock_root.sh";
     private static final String OFFSETS_JSON = "offsets.json";
+    private static final String PRESET_OFFSETS_ASSET = "offsets.json";
     private static final int REQ_IMPORT_OFFSETS = 1001;
     private static final int REQ_PICK_BOOT = 1002;
     private static final int REQ_PICK_XBL = 1003;
@@ -321,6 +322,97 @@ public class GhostLockActivity extends ComponentActivity {
         } catch (IOException ignored) {
         }
         return false;
+    }
+
+    /**
+     * Materialize the preset (built-in) offsets for the current kernel into
+     * {@code filesDir/offsets.json} so the existing execution interface
+     * ({@link #startExploit()}, which reads offsets.json via GHOSTLOCK_HOME)
+     * can pick it up unchanged.
+     *
+     * <p>The preset asset is a JSON document (object or array of entries)
+     * shipped under {@link #PRESET_OFFSETS_ASSET}.  Only the entry whose
+     * "release" matches the current kernel is persisted; this keeps the
+     * on-disk store consistent with what {@link #importedOffsetsMatch(String)}
+     * validates.</p>
+     *
+     * @return true when a matching preset entry was written and is ready for
+     *         the existing pipeline
+     */
+    private boolean materializePresetOffsets(String version) {
+        JSONArray preset;
+        try {
+            preset = readOffsetsAsset(PRESET_OFFSETS_ASSET);
+        } catch (IOException e) {
+            appendLog("preset offsets unavailable: " + e.getMessage());
+            return false;
+        }
+        if (preset == null) {
+            return false;
+        }
+        JSONObject match = null;
+        for (int i = 0; i < preset.length(); i++) {
+            JSONObject entry = preset.optJSONObject(i);
+            if (entry == null) {
+                continue;
+            }
+            if (version.equals(entry.optString("release", ""))) {
+                match = entry;
+                break;
+            }
+        }
+        if (match == null) {
+            return false;
+        }
+        try {
+            File offsets = new File(getFilesDir(), OFFSETS_JSON);
+            JSONArray existing = readOffsetsFile(offsets);
+            if (existing == null) {
+                existing = new JSONArray();
+            }
+            // Same merge semantics as the OTA import path: the preset is the
+            // source of truth for the current release, so overwrite any
+            // existing entry for that release rather than accumulating stale
+            // values.
+            mergeAndSave(offsets, existing, new JSONArray().put(match), true);
+            return true;
+        } catch (IOException e) {
+            appendLog("materialize preset offsets failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Read a JSON document (object or array) from an assets path.  Mirrors
+     * {@link #readOffsetsFile(File)} but sources from the APK assets instead
+     * of the filesystem.
+     */
+    private JSONArray readOffsetsAsset(String assetPath) throws IOException {
+        try (InputStream in = getAssets().open(assetPath)) {
+            StringBuilder sb = new StringBuilder();
+            try (BufferedReader r = new BufferedReader(
+                    new InputStreamReader(in, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    sb.append(line).append('\n');
+                }
+            }
+            if (sb.toString().trim().isEmpty()) {
+                return null;
+            }
+            Object value = new JSONTokener(sb.toString()).nextValue();
+            if (value instanceof JSONArray) {
+                return (JSONArray) value;
+            }
+            if (value instanceof JSONObject) {
+                JSONArray arr = new JSONArray();
+                arr.put(value);
+                return arr;
+            }
+            return null;
+        } catch (JSONException e) {
+            throw new IOException("invalid preset offsets json", e);
+        }
     }
 
     private void buildCpuPairs() {
@@ -747,11 +839,16 @@ public class GhostLockActivity extends ComponentActivity {
     }
 
     /**
-     * The top action only checks the locally imported offsets configuration.
-     * The OTA parsing/execution action below keeps its original flow.
+     * Top-level action: if the locally matched configuration is already on
+     * disk, hand it straight to the existing execution interface
+     * ({@link #startExploit()}); otherwise try to materialize the built-in
+     * preset for the current kernel and then do the same.
      *
-     * This method intentionally does not start the native privilege operation;
-     * it only validates and reports the local configuration state.
+     * <p>Before this change the method only validated and reported the local
+     * configuration state (intentionally did not start the native operation).
+     * Now the "matched" branch reuses the exact same tail as the OTA flow
+     * (mergeAndSave + startExploit), so there is exactly one execution path
+     * and offsets.json is always in the shape the native binary expects.</p>
      */
     private void startAutomaticPrivilege() {
         if (running.get() || automaticFlowRunning.get()) {
@@ -765,11 +862,27 @@ public class GhostLockActivity extends ComponentActivity {
             appendLog("local offsets matched current kernel: " + version);
             toast(R.string.ghostlock_offsets_matched);
             autoRootButton.setText(R.string.ghostlock_action_local_ready);
-        } else {
-            appendLog("no local offsets match current kernel: " + version);
-            toast(R.string.ghostlock_offsets_not_found);
-            autoRootButton.setText(R.string.ghostlock_action_start_privilege);
+            // Already persisted by a previous import/OTA: feed it to the
+            // existing execution interface unchanged.
+            startExploit();
+            return;
         }
+
+        // Not on disk yet: if a built-in preset matches the current kernel,
+        // materialize it to filesDir/offsets.json (the format startExploit's
+        // native binary reads) and then enter the same interface.
+        if (materializePresetOffsets(version)) {
+            appendLog("preset offsets materialized for current kernel: " + version);
+            applyKernelStatus();
+            toast(R.string.ghostlock_offsets_matched);
+            autoRootButton.setText(R.string.ghostlock_action_local_ready);
+            startExploit();
+            return;
+        }
+
+        appendLog("no local offsets match current kernel: " + version);
+        toast(R.string.ghostlock_offsets_not_found);
+        autoRootButton.setText(R.string.ghostlock_action_start_privilege);
     }
 
     private void pickParseBoot(boolean withXbl) {
