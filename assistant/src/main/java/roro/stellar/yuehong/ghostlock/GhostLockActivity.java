@@ -266,6 +266,54 @@ public class GhostLockActivity extends ComponentActivity {
         return input.replaceAll("\u001B\\[[;\\d]*m", "");
     }
 
+    /** Append one application log line and keep the log view scrolled to the end. */
+    private void appendLog(String message) {
+        if (message == null) {
+            return;
+        }
+        Runnable action = () -> {
+            String line = stripAnsi(message);
+            synchronized (logBuffer) {
+                logBuffer.append(line).append('\n');
+            }
+            if (logView != null) {
+                logView.append(colorize(line));
+                logView.append("\n");
+            }
+            if (logScroll != null) {
+                logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN));
+            }
+        };
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            action.run();
+        } else {
+            ui.post(action);
+        }
+    }
+
+    /** Show a short UI message on the main thread. */
+    private void toast(int resId) {
+        Runnable action = () -> Toast.makeText(this, resId, Toast.LENGTH_SHORT).show();
+        if (Looper.myLooper() == Looper.getMainLooper()) {
+            action.run();
+        } else {
+            ui.post(action);
+        }
+    }
+
+    /** Copy the complete application log to the clipboard. */
+    private void copyLogs() {
+        String text;
+        synchronized (logBuffer) {
+            text = logBuffer.toString();
+        }
+        ClipboardManager clipboard = (ClipboardManager) getSystemService(CLIPBOARD_SERVICE);
+        if (clipboard != null) {
+            clipboard.setPrimaryClip(ClipData.newPlainText(TAG, text));
+            Toast.makeText(this, text.isEmpty() ? "Log is empty" : "Log copied", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private static void copyStream(InputStream in, OutputStream out) throws IOException {
         byte[] buf = new byte[8192];
         int n;
