@@ -46,4 +46,8 @@
     <string name="ghostlock_kernel_unsupported">Not supported</string>
     <string name="ghostlock_support_label">Support</string>
     <string name="ghostlock_cpu_pair_label">CPU cores</string>
+
+    <string name="ghostlock_action_local_ready">Local offsets ready</string>
+    <string name="ghostlock_offsets_matched">Local offsets match the current kernel</string>
+    <string name="ghostlock_offsets_not_found">No local offsets match the current kernel</string>
 </resources>
