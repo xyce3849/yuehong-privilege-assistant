@@ -324,6 +324,97 @@ public class GhostLockActivity extends ComponentActivity {
         return false;
     }
 
+    /**
+     * Materialize the preset (built-in) offsets for the current kernel into
+     * {@code filesDir/offsets.json} so the existing execution interface
+     * ({@link #startExploit()}, which reads offsets.json via GHOSTLOCK_HOME)
+     * can pick it up unchanged.
+     *
+     * <p>The preset asset is a JSON document (object or array of entries)
+     * shipped under {@link #PRESET_OFFSETS_ASSET}.  Only the entry whose
+     * "release" matches the current kernel is persisted; this keeps the
+     * on-disk store consistent with what {@link #importedOffsetsMatch(String)}
+     * validates.</p>
+     *
+     * @return true when a matching preset entry was written and is ready for
+     *         the existing pipeline
+     */
+    private boolean materializePresetOffsets(String version) {
+        JSONArray preset;
+        try {
+            preset = readOffsetsAsset(PRESET_OFFSETS_ASSET);
+        } catch (IOException e) {
+            appendLog("preset offsets unavailable: " + e.getMessage());
+            return false;
+        }
+        if (preset == null) {
+            return false;
+        }
+        JSONObject match = null;
+        for (int i = 0; i < preset.length(); i++) {
+            JSONObject entry = preset.optJSONObject(i);
+            if (entry == null) {
+                continue;
+            }
+            if (version.equals(entry.optString("release", ""))) {
+                match = entry;
+                break;
+            }
+        }
+        if (match == null) {
+            return false;
+        }
+        try {
+            File offsets = new File(getFilesDir(), OFFSETS_JSON);
+            JSONArray existing = readOffsetsFile(offsets);
+            if (existing == null) {
+                existing = new JSONArray();
+            }
+            // Same merge semantics as the OTA import path: the preset is the
+            // source of truth for the current release, so overwrite any
+            // existing entry for that release rather than accumulating stale
+            // values.
+            mergeAndSave(offsets, existing, new JSONArray().put(match), true);
+            return true;
+        } catch (IOException e) {
+            appendLog("materialize preset offsets failed: " + e.getMessage());
+            return false;
+        }
+    }
+
+    /**
+     * Read a JSON document (object or array) from an assets path.  Mirrors
+     * {@link #readOffsetsFile(File)} but sources from the APK assets instead
+     * of the filesystem.
+     */
+    private JSONArray readOffsetsAsset(String assetPath) throws IOException {
+        try (InputStream in = getAssets().open(assetPath)) {
+            StringBuilder sb = new StringBuilder();
+            try (BufferedReader r = new BufferedReader(
+                    new InputStreamReader(in, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    sb.append(line).append('\n');
+                }
+            }
+            if (sb.toString().trim().isEmpty()) {
+                return null;
+            }
+            Object value = new JSONTokener(sb.toString()).nextValue();
+            if (value instanceof JSONArray) {
+                return (JSONArray) value;
+            }
+            if (value instanceof JSONObject) {
+                JSONArray arr = new JSONArray();
+                arr.put(value);
+                return arr;
+            }
+            return null;
+        } catch (JSONException e) {
+            throw new IOException("invalid preset offsets json", e);
+        }
+    }
+
     private void buildCpuPairs() {
         cpuPairs.clear();
         cpuPairLabels.clear();
@@ -723,19 +814,41 @@ public class GhostLockActivity extends ComponentActivity {
         });
     }
 
+    private void parseOffsets() {
+        new AlertDialog.Builder(this).setTitle(R.string.ghostlock_parse_title).setItems(new CharSequence[]{getString(R.string.ghostlock_parse_option_boot), getString(R.string.ghostlock_parse_option_boot_xbl),}, (dialog, which) -> {
+            switch (which) {
+                case 0:
+                    pickParseBoot(false);
+                    break;
+                case 1:
+                    pickParseBoot(true);
+                    break;
+            }
+        }).setNegativeButton(R.string.ghostlock_cancel, null).show();
+    }
+
+    private void promptParseUrl() {
+        String url = otaUrlInput.getText().toString().trim();
+        if (url.isEmpty() || !(url.startsWith("http://") || url.startsWith("https://"))) {
+            appendLog("error: invalid OTA URL: " + url);
+            toast(R.string.ghostlock_parse_failed_url);
+            return;
+        }
+        appendLog("parse OTA: " + url);
+        runExtract(url, null);
+    }
+
     /**
-     * Entry point of the "start privilege escalation" button.
+     * Top-level action: if the locally matched configuration is already on
+     * disk, hand it straight to the existing execution interface
+     * ({@link #startExploit()}); otherwise try to materialize the built-in
+     * preset for the current kernel and then do the same.
      *
-     * Execution contract (kept in sync with the OTA success path in runExtract):
-     *
-     *     OTA:  parse → mergeAndSave(release check) → startExploit → [gate] → native
-     *     local: match → prepareOffsetsForExecution  → startExploit → [gate] → native
-     *                     ^^^
-     *                     this is the "B" step that must NOT be skipped: the
-     *                     current-release entry has to be materialised into
-     *                     filesDir/offsets.json BEFORE startExploit(), so that
-     *                     startExploit()'s own isKernelSupported() gate reads
-     *                     the real on-disk state — exactly what OTA does.
+     * <p>Before this change the method only validated and reported the local
+     * configuration state (intentionally did not start the native operation).
+     * Now the "matched" branch reuses the exact same tail as the OTA flow
+     * (mergeAndSave + startExploit), so there is exactly one execution path
+     * and offsets.json is always in the shape the native binary expects.</p>
      */
     private void startAutomaticPrivilege() {
         if (running.get() || automaticFlowRunning.get()) {
@@ -743,142 +856,33 @@ public class GhostLockActivity extends ComponentActivity {
         }
 
         String version = System.getProperty("os.version", "");
-        if (version.isEmpty()) {
-            appendLog("local: cannot determine current kernel release");
-            toast(R.string.ghostlock_offsets_not_found);
+        boolean matched = importedOffsetsMatch(version);
+
+        if (matched) {
+            appendLog("local offsets matched current kernel: " + version);
+            toast(R.string.ghostlock_offsets_matched);
+            autoRootButton.setText(R.string.ghostlock_action_local_ready);
+            // Already persisted by a previous import/OTA: feed it to the
+            // existing execution interface unchanged.
+            startExploit();
             return;
         }
 
-        // A: locate the entry matching the current kernel, in priority order:
-        //    1) the on-disk store (filesDir/offsets.json) — same file OTA writes
-        //    2) the bundled preset (assets/offsets.json)  — shipped fallback
-        JSONObject matched = findLocalEntry(version);
-        if (matched == null) {
-            appendLog("no local offsets match current kernel: " + version);
-            toast(R.string.ghostlock_offsets_not_found);
-            autoRootButton.setText(R.string.ghostlock_action_start_privilege);
+        // Not on disk yet: if a built-in preset matches the current kernel,
+        // materialize it to filesDir/offsets.json (the format startExploit's
+        // native binary reads) and then enter the same interface.
+        if (materializePresetOffsets(version)) {
+            appendLog("preset offsets materialized for current kernel: " + version);
+            applyKernelStatus();
+            toast(R.string.ghostlock_offsets_matched);
+            autoRootButton.setText(R.string.ghostlock_action_local_ready);
+            startExploit();
             return;
         }
 
-        // A→B: materialise the matched entry into filesDir/offsets.json.
-        // This is the exact counterpart of the OTA path's
-        //   mergeAndSave(offsets, existing, imported, true)   [runExtract:1003]
-        // followed by startExploit().  It deliberately runs on the worker
-        // thread, just like the OTA merge, so startExploit() sees a consistent
-        // file when it checks isKernelSupported() on the UI thread next.
-        final JSONObject entry = matched;
-        worker.execute(() -> {
-            try {
-                prepareOffsetsForExecution(entry, version);
-                ui.post(() -> {
-                    appendLog("local offsets matched & materialised: " + version);
-                    toast(R.string.ghostlock_offsets_matched);
-                    autoRootButton.setText(R.string.ghostlock_action_local_ready);
-                    // B→C→D→native: identical entry point to the OTA path.
-                    startExploit();
-                });
-            } catch (IOException e) {
-                appendLog("local offsets materialise failed: " + e.getMessage());
-                ui.post(() -> toast(R.string.ghostlock_import_failed));
-            }
-        });
-    }
-
-    /**
-     * B step — mirrors runExtract's post-parse sequence (lines ~987-1009):
-     *
-     *   1. read existing filesDir/offsets.json
-     *   2. validate the entry's release matches the current kernel
-     *   3. mergeAndSave(..., overwrite=true) so the current release is the
-     *      definitive entry on disk
-     *
-     * After this returns successfully, startExploit()'s isKernelSupported()
-     * gate is guaranteed to pass against the real file.
-     */
-    private void prepareOffsetsForExecution(JSONObject entry, String currentRelease) throws IOException {
-        String release = entry.optString("release", "");
-        if (!currentRelease.equals(release)) {
-            throw new IOException("local entry release mismatch: entry=" + release + ", current=" + currentRelease);
-        }
-        File offsets = new File(getFilesDir(), OFFSETS_JSON);
-        JSONArray existing = readOffsetsFile(offsets);
-        if (existing == null) {
-            existing = new JSONArray();
-        }
-        JSONArray imported = new JSONArray();
-        imported.put(entry);
-        // overwrite=true: OTA's contract — the freshly resolved current-release
-        // entry always wins over any stale on-disk value.
-        mergeAndSave(offsets, existing, imported, true);
-        appendLog("local offsets written: " + offsets.getAbsolutePath());
-    }
-
-    /**
-     * Search order for a local entry matching {@code release}:
-     *  1. filesDir/offsets.json   — the runtime store (OTA also writes here)
-     *  2. assets/offsets.json     — preset shipped with the APK
-     *
-     * Returns the first matching JSONObject, or null.
-     */
-    private JSONObject findLocalEntry(String release) {
-        // 1) on-disk store
-        JSONObject fromDisk = findEntryInFile(new File(getFilesDir(), OFFSETS_JSON), release);
-        if (fromDisk != null) {
-            return fromDisk;
-        }
-        // 2) bundled preset
-        return readPresetEntry(release);
-    }
-
-    private JSONObject findEntryInFile(File file, String release) {
-        try {
-            JSONArray arr = readOffsetsFile(file);
-            if (arr == null) {
-                return null;
-            }
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject e = arr.optJSONObject(i);
-                if (e != null && release.equals(e.optString("release", ""))) {
-                    return e;
-                }
-            }
-        } catch (IOException ignored) {
-        }
-        return null;
-    }
-
-    /**
-     * Read the preset shipped in assets/offsets.json.  Supports both a single
-     * object and an array of entries — same convention as readOffsetsFile().
-     */
-    private JSONObject readPresetEntry(String release) {
-        try (InputStream in = getAssets().open(PRESET_OFFSETS_ASSET)) {
-            StringBuilder sb = new StringBuilder();
-            try (BufferedReader r = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = r.readLine()) != null) {
-                    sb.append(line).append('\n');
-                }
-            }
-            Object value = new JSONTokener(sb.toString()).nextValue();
-            JSONArray arr;
-            if (value instanceof JSONArray) {
-                arr = (JSONArray) value;
-            } else if (value instanceof JSONObject) {
-                arr = new JSONArray();
-                arr.put(value);
-            } else {
-                return null;
-            }
-            for (int i = 0; i < arr.length(); i++) {
-                JSONObject e = arr.optJSONObject(i);
-                if (e != null && release.equals(e.optString("release", ""))) {
-                    return e;
-                }
-            }
-        } catch (IOException | JSONException ignored) {
-        }
-        return null;
+        appendLog("no local offsets match current kernel: " + version);
+        toast(R.string.ghostlock_offsets_not_found);
+        autoRootButton.setText(R.string.ghostlock_action_start_privilege);
     }
 
     private void pickParseBoot(boolean withXbl) {
@@ -1272,6 +1276,158 @@ public class GhostLockActivity extends ComponentActivity {
              OutputStream output = new FileOutputStream(out, false)) {
             copyStream(in, output);
         }
+        try {
+            Os.chmod(out.getAbsolutePath(), 448);
+        } catch (ErrnoException e) {
+            throw new IOException("chmod shared activation script failed", e);
+        }
         return out;
+    }
+
+    private int runBinary(File binary, File workDir) throws IOException, InterruptedException {
+        ProcessBuilder pb = new ProcessBuilder(binary.getAbsolutePath());
+        pb.directory(workDir);
+        pb.redirectErrorStream(true);
+        pb.environment().put("GHOSTLOCK_HOME", workDir.getAbsolutePath());
+        pb.environment().put("TMPDIR", workDir.getAbsolutePath());
+        pb.environment().put("HOME", workDir.getAbsolutePath());
+        pb.environment().put("YHROOT_TMP_ROOT", workDir.getAbsolutePath());
+        pb.environment().put("YHROOT_CLEANUP_DELAY", "5");
+        int[] pair = cpuPairs.get(cpuPairIndex);
+        if (pair[0] != 0 || pair[1] != 1) {
+            pb.environment().put("GHOSTLOCK_CORE", String.valueOf(pair[0]));
+            pb.environment().put("GHOSTLOCK_CONSUMER_CORE", String.valueOf(pair[1]));
+        }
+        return runProcess(pb);
+    }
+
+    /**
+     * A futex/heap-spray route can lose a race or be killed under memory
+     * pressure. Retry once in a fresh native process while keeping OTA
+     * offsets and the selected CPU pair unchanged.
+     */
+    private int runBinaryWithRetry(File binary, File workDir) throws IOException, InterruptedException {
+        int code = 1;
+        for (int attempt = 1; attempt <= MAX_NATIVE_ATTEMPTS; attempt++) {
+            File activationLog = new File(workDir, ".ghostlock_ksu.log");
+            if (activationLog.isFile() && !activationLog.delete()) {
+                appendLog("warning: stale KernelSU activation log could not be removed");
+            }
+            File activationScript = prepareKsuActivationScript(workDir);
+            appendLog("shared KernelSU activation script ready: " + activationScript.getName());
+            appendLog("native attempt " + attempt + "/" + MAX_NATIVE_ATTEMPTS);
+            code = runBinary(binary, workDir);
+            if (code == 0) {
+                return 0;
+            }
+            if (!isRetryableNativeExit(code) || attempt == MAX_NATIVE_ATTEMPTS) {
+                break;
+            }
+            appendLog("native attempt " + attempt + " ended with " + describeNativeExit(code)
+                    + "; retrying in a fresh process");
+            Thread.sleep(NATIVE_RETRY_DELAY_MS);
+        }
+        if (code == EXIT_KSU_ACTIVATION_FAILED) {
+            appendLog("KernelSU activation did not complete; result is not marked successful");
+        }
+        return code;
+    }
+
+    private static boolean isRetryableNativeExit(int code) {
+        return code == 1 || code == 137 || code == -1;
+    }
+
+    private static String describeNativeExit(int code) {
+        if (code == 137) return "SIGKILL/low-memory exit 137";
+        if (code == -1) return "timeout";
+        return "exit " + code;
+    }
+
+    private int runProcess(ProcessBuilder pb) throws IOException, InterruptedException {
+        return runProcess(pb, 300);
+    }
+
+    private int runProcess(ProcessBuilder pb, long timeoutSeconds) throws IOException, InterruptedException {
+        Process process = pb.start();
+        Thread reader = new Thread(() -> {
+            try (BufferedReader br = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = br.readLine()) != null) {
+                    appendLog(line);
+                }
+            } catch (IOException ignored) {
+            }
+        }, "ghostlock-reader");
+        reader.setDaemon(true);
+        reader.start();
+
+        boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+        if (!finished) {
+            process.destroy();
+            if (!process.waitFor(5, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+            }
+        }
+        // Drain buffered output, then force-unblock the reader: a late-load
+        // daemon (zygisk) can inherit our pipe and keep it open forever.
+        try {
+            reader.join(3000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        try {
+            process.getInputStream().close();
+        } catch (IOException ignored) {
+        }
+        try {
+            reader.join(3000);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        return finished ? process.exitValue() : -1;
+    }
+
+    private void copyLogs() {
+        ClipboardManager cm = getSystemService(ClipboardManager.class);
+        if (cm == null) {
+            return;
+        }
+        String text;
+        synchronized (logBuffer) {
+            text = logBuffer.toString();
+        }
+        cm.setPrimaryClip(ClipData.newPlainText("ghostlock-log", text));
+        Toast.makeText(this, R.string.ghostlock_copied, Toast.LENGTH_SHORT).show();
+    }
+
+    private void toast(int resId) {
+        Toast.makeText(this, resId, Toast.LENGTH_SHORT).show();
+    }
+
+    private void appendLog(String line) {
+        if (line == null) {
+            return;
+        }
+        final String msg = line.endsWith("\n") ? line : line + "\n";
+        final String plain = stripAnsi(msg);
+        synchronized (logBuffer) {
+            logBuffer.append(plain);
+        }
+        final CharSequence display = colorize(plain);
+        ui.post(() -> {
+            logView.append(display);
+            logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN));
+        });
+        android.util.Log.i(TAG, plain.trim());
+    }
+
+    private int dp(int value) {
+        float density = getResources().getDisplayMetrics().density;
+        return Math.round(value * density);
+    }
+
+    private enum RunState {
+        IDLE, RUNNING, SUCCESS, FAILED
     }
 }
