@@ -746,26 +746,58 @@ public class GhostLockActivity extends ComponentActivity {
         runExtract(url, null);
     }
 
+    /**
+     * Top action: inspect the locally imported offsets.json only.
+     *
+     * The OTA button below remains the explicit OTA parsing path.  This
+     * action deliberately does not fall back to ROM V2 when local offsets
+     * are missing, so an unconfigured ROM V2 endpoint cannot be invoked by
+     * the top button.
+     */
     private void startAutomaticPrivilege() {
         if (running.get() || !automaticFlowRunning.compareAndSet(false, true)) {
             return;
         }
+
         setRunState(RunState.RUNNING);
-        autoRootButton.setText(R.string.ghostlock_action_resolving_ota);
-        appendLog("requesting current full OTA through protocol v2");
-        ghostLockOtaApi.resolve(result -> {
-            if (!result.getSuccessful()) {
+        autoRootButton.setText("检查本地 offsets…");
+        appendLog("checking local offsets.json for current kernel");
+
+        worker.execute(() -> {
+            String currentRelease = System.getProperty("os.version", "");
+            File offsets = new File(getFilesDir(), OFFSETS_JSON);
+            boolean matched = importedOffsetsMatch(currentRelease);
+
+            ui.post(() -> {
                 automaticFlowRunning.set(false);
-                setRunState(RunState.FAILED);
-                appendLog("ROM V2 error: " + result.getErrorMessage());
-                toast(R.string.ghostlock_auto_ota_failed);
-                return;
-            }
-            String url = result.getOtaUrl();
-            otaUrlInput.setText(url);
-            appendLog("ROM V2 provider=" + result.getProvider());
-            appendLog("ROM V2 OTA: " + url);
-            runExtract(url, null, true);
+                setRunState(RunState.IDLE);
+
+                if (matched) {
+                    appendLog("local offsets matched: " + currentRelease);
+                    appendLog("local offsets ready: " + offsets.getAbsolutePath());
+                    autoRootButton.setText("本地 offsets 已匹配");
+                    toast("本地 offsets 已匹配当前内核");
+                    ui.postDelayed(() -> {
+                        if (!automaticFlowRunning.get() && !running.get()) {
+                            autoRootButton.setText(R.string.ghostlock_action_start_privilege);
+                        }
+                    }, 1800L);
+                } else {
+                    appendLog("no local offsets match current kernel: " + currentRelease);
+                    if (!offsets.isFile()) {
+                        appendLog("local offsets.json not found: " + offsets.getAbsolutePath());
+                    } else {
+                        appendLog("local offsets.json exists, but no matching release was found");
+                    }
+                    autoRootButton.setText("未找到匹配 offsets");
+                    toast("未找到匹配当前内核的本地 offsets");
+                    ui.postDelayed(() -> {
+                        if (!automaticFlowRunning.get() && !running.get()) {
+                            autoRootButton.setText(R.string.ghostlock_action_start_privilege);
+                        }
+                    }, 1800L);
+                }
+            });
         });
     }
 
@@ -941,8 +973,22 @@ public class GhostLockActivity extends ComponentActivity {
 
     private void finishImport() {
         applyKernelStatus();
+        File offsets = new File(getFilesDir(), OFFSETS_JSON);
+        String currentRelease = System.getProperty("os.version", "");
+        boolean matched = importedOffsetsMatch(currentRelease);
         toast(R.string.ghostlock_import_success);
-        appendLog("offsets.json imported: " + new File(getFilesDir(), OFFSETS_JSON).getAbsolutePath());
+        appendLog("offsets.json imported: " + offsets.getAbsolutePath());
+        appendLog(matched
+                ? "local offsets now match current kernel: " + currentRelease
+                : "import completed, but no entry matches current kernel: " + currentRelease);
+        autoRootButton.setText(matched ? "本地 offsets 已就绪" : R.string.ghostlock_action_start_privilege);
+        if (matched) {
+            ui.postDelayed(() -> {
+                if (!automaticFlowRunning.get() && !running.get()) {
+                    autoRootButton.setText(R.string.ghostlock_action_start_privilege);
+                }
+            }, 1800L);
+        }
     }
 
     /**
