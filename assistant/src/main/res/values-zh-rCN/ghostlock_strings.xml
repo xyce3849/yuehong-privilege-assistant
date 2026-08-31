@@ -46,4 +46,8 @@
     <string name="ghostlock_kernel_unsupported">不支持</string>
     <string name="ghostlock_support_label">支持</string>
     <string name="ghostlock_cpu_pair_label">CPU 核心对</string>
+
+    <string name="ghostlock_action_local_ready">本地 offsets 已就绪</string>
+    <string name="ghostlock_offsets_matched">本地 offsets 已匹配当前内核</string>
+    <string name="ghostlock_offsets_not_found">未找到匹配当前内核的本地 offsets</string>
 </resources>
