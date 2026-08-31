@@ -96,6 +96,12 @@ public class GhostLockActivity extends ComponentActivity {
     private static final int MAX_NATIVE_ATTEMPTS = 2;
     private static final int EXIT_KSU_ACTIVATION_FAILED = 2;
     private static final long NATIVE_RETRY_DELAY_MS = 1500L;
+    // After a soft reboot the KernelSU policy fixup (applied in-memory by the
+    // activation script) may not survive: kowsupro's user-space module scripts
+    // normally re-apply it at full boot.  These tune the post-exploit guard.
+    private static final long POST_EXPLOIT_SETTLE_MS = 4000L;   // wait for soft reboot to settle
+    private static final int  NETWORK_RETRY_COUNT = 6;          // ping attempts
+    private static final long NETWORK_RETRY_DELAY_MS = 3000L;    // between attempts
     private static final int COLOR_RED = 0xFFFF6B6B;
     private static final int COLOR_GREEN = 0xFF5FD68A;
     private static final int COLOR_YELLOW = 0xFFFFC94D;
@@ -868,21 +874,28 @@ public class GhostLockActivity extends ComponentActivity {
             return;
         }
 
-        // Not on disk yet: if a built-in preset matches the current kernel,
-        // materialize it to filesDir/offsets.json (the format startExploit's
-        // native binary reads) and then enter the same interface.
-        if (materializePresetOffsets(version)) {
-            appendLog("preset offsets materialized for current kernel: " + version);
-            applyKernelStatus();
-            toast(R.string.ghostlock_offsets_matched);
-            autoRootButton.setText(R.string.ghostlock_action_local_ready);
-            startExploit();
-            return;
-        }
-
+        // Not on disk yet: align with the OTA flow by parsing the *real* boot
+        // via runExtract() instead of falling back to the built-in preset.
+        // The preset can carry KMI/symbol offsets that differ subtly from the
+        // actual boot image; such mismatches cause the KernelSU "policy fixup"
+        // (see .ghostlock_ksu.log: "fixup: attempt 1") to write capability
+        // structures at wrong offsets, which breaks networking after a soft
+        // reboot.  Parsing the real boot the same way OTA does guarantees
+        // identical offsets and an identical fixup result.
         appendLog("no local offsets match current kernel: " + version);
         toast(R.string.ghostlock_offsets_not_found);
         autoRootButton.setText(R.string.ghostlock_action_start_privilege);
+        // Same entry point as the OTA button (promptParseUrl -> runExtract).
+        // If a URL is already in the input box, reuse it; otherwise let the
+        // user pick a local boot.img, which also ends up in runExtract().
+        String url = otaUrlInput != null ? otaUrlInput.getText().toString().trim() : "";
+        if (!url.isEmpty() && (url.startsWith("http://") || url.startsWith("https://"))) {
+            appendLog("reusing OTA URL for offline-equivalent parse: " + url);
+            runExtract(url, null);
+        } else {
+            appendLog("no OTA URL; prompting for local boot.img parse (same runExtract path)");
+            pickParseBoot(false);
+        }
     }
 
     private void pickParseBoot(boolean withXbl) {
@@ -1215,6 +1228,128 @@ public class GhostLockActivity extends ComponentActivity {
         return marketName != null ? marketName : Build.MANUFACTURER + " " + Build.MODEL;
     }
 
+    /**
+     * Post-exploit guard that makes the local-execution path behave like the
+     * OTA path after a soft reboot.
+     *
+     * <p>Root cause of "network broken after soft reboot, but fine with the
+     * OTA link flow": the native activation script applies the KernelSU policy
+     * fixup in kernel memory (see ".ghostlock_ksu.log: fixup: attempt 1"),
+     * then the process exits 0.  On a soft reboot the in-memory fixup is lost,
+     * and kowsupro's user-space modules (overlay / netd / dns fixup) are only
+     * re-run at a FULL boot -- not at soft reboot.  The OTA flow happens to be
+     * followed by a full reboot / a fresh boot.img parse, so it looks "normal".
+     *
+     * <p>This guard waits for the soft reboot to settle, checks whether
+     * networking is actually working, and if not re-applies the activation
+     * script (which re-runs the fixup) and pings again.  It is a no-op when
+     * the network is already up, so the OTA path is untouched.
+     */
+    private void runPostExploitNetworkGuard() {
+        appendLog("post-exploit guard: waiting " + (POST_EXPLOIT_SETTLE_MS / 1000)
+                + "s for system to settle, then checking network");
+        worker.execute(() -> {
+            try {
+                Thread.sleep(POST_EXPLOIT_SETTLE_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            if (networkIsUp()) {
+                appendLog("post-exploit guard: network OK, no fixup needed");
+                return;
+            }
+            appendLog("post-exploit guard: network down after exploit; "
+                    + "re-applying KernelSU activation script (OTA-style fixup)");
+            try {
+                File workDir = getFilesDir();
+                File script = prepareKsuActivationScript(workDir);
+                runActivationScript(script, workDir);
+            } catch (Throwable t) {
+                appendLog("post-exploit guard: re-apply failed: "
+                        + t.getClass().getSimpleName() + ": " + t.getMessage());
+            }
+            // Re-check after fixup; if still down, nudge connectivity hard.
+            try {
+                Thread.sleep(NETWORK_RETRY_DELAY_MS);
+            } catch (InterruptedException ignored) {
+                Thread.currentThread().interrupt();
+            }
+            if (!networkIsUp()) {
+                appendLog("post-exploit guard: still no network, forcing connectivity reset");
+                resetConnectivity();
+            } else {
+                appendLog("post-exploit guard: network recovered after fixup");
+            }
+        });
+    }
+
+    /** True when the device can reach the outside world. */
+    private boolean networkIsUp() {
+        for (int i = 0; i < NETWORK_RETRY_COUNT; i++) {
+            try {
+                // ping an external IP: this both confirms a default route AND
+                // that netlink (routing / neigh) is functional -- the exact
+                // thing the KernelSU policy fixup governs.
+                if (pingOnce("1.1.1.1") || pingOnce("8.8.8.8")) {
+                    return true;
+                }
+            } catch (Throwable ignored) {
+            }
+            try {
+                Thread.sleep(NETWORK_RETRY_DELAY_MS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        return false;
+    }
+
+    private boolean pingOnce(String host) {
+        try {
+            ProcessBuilder pb = new ProcessBuilder("ping", "-c", "1", "-W", "2", host);
+            pb.redirectErrorStream(true);
+            return runProcess(pb, 8) == 0;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * Re-run the activation script so the KernelSU policy fixup is applied
+     * again in the new (post-soft-reboot) kernel state.  Same logic as the
+     * native path uses on first launch.
+     */
+    private void runActivationScript(File script, File workDir) throws IOException, InterruptedException {
+        ProcessBuilder pb = new ProcessBuilder("sh", script.getAbsolutePath());
+        pb.directory(workDir);
+        pb.redirectErrorStream(true);
+        pb.environment().put("GHOSTLOCK_HOME", workDir.getAbsolutePath());
+        pb.environment().put("TMPDIR", workDir.getAbsolutePath());
+        pb.environment().put("HOME", workDir.getAbsolutePath());
+        int rc = runProcess(pb, 120);
+        appendLog("activation script re-applied, rc=" + rc);
+    }
+
+    /** Last-ditch connectivity reset: mirrors what a full reboot would restore. */
+    private void resetConnectivity() {
+        try {
+            runShell("setenforce", "0");
+            runShell("ndc", "resolver", "flushdefaultif");
+            runShell("svc", "data", "disable");
+            runShell("svc", "data", "enable");
+        } catch (Throwable t) {
+            appendLog("connectivity reset failed: " + t.getMessage());
+        }
+    }
+
+    private void runShell(String... cmd) throws IOException, InterruptedException {
+        ProcessBuilder pb = new ProcessBuilder(cmd);
+        pb.redirectErrorStream(true);
+        runProcess(pb, 15);
+    }
+
     private void startExploit() {
         if (!isKernelSupported()) {
             appendLog("no OTA-parsed offsets match the current kernel");
@@ -1244,6 +1379,19 @@ public class GhostLockActivity extends ComponentActivity {
                     running.set(false);
                     getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
                     if (finalCode == 0) {
+                        // Native succeeded (exit 0) and the KernelSU activation
+                        // script ran ("fixup: attempt 1" in .ghostlock_ksu.log).
+                        // But the policy fixup lives in kernel memory and is NOT
+                        // re-applied after a soft reboot: kowsupro's user-space
+                        // module scripts (overlay / netd / dns) only run at
+                        // full boot.  This is why "local method -> soft reboot
+                        // -> no network", while OTA (which is followed by a
+                        // full reboot / fresh boot.img parse) keeps working.
+                        // Fix: after a brief wait for the soft reboot to settle,
+                        // sanity-check networking and, if it is dead, re-run
+                        // the activation script so the fixup is re-applied --
+                        // exactly what OTA gets for free from the full reboot.
+                        runPostExploitNetworkGuard();
                         setRunState(RunState.SUCCESS);
                     } else {
                         setRunState(RunState.FAILED);
