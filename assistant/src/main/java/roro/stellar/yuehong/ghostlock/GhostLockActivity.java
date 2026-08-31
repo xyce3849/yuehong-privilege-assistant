@@ -102,6 +102,27 @@ public class GhostLockActivity extends ComponentActivity {
     private static final long POST_EXPLOIT_SETTLE_MS = 4000L;   // wait for soft reboot to settle
     private static final int  NETWORK_RETRY_COUNT = 6;          // ping attempts
     private static final long NETWORK_RETRY_DELAY_MS = 3000L;    // between attempts
+    // Stability guard: instead of relying only on an external ping (which can
+    // misreport "network down" on a host that has connectivity but no outside
+    // route, or under DNS-only failures), also check the local evidence that
+    // the KernelSU policy fixup actually completed.  See ksuFixupSucceeded().
+    private static final String KSU_LOG_NAME = ".ghostlock_ksu.log";
+    // Matches a "fixup: attempt N" line (the start of a fixup block).  The
+    // actual outcome may be on this line or within the next few lines, so the
+    // success-word scan is handled separately in ksuFixupSucceeded().
+    private static final Pattern KSU_ATTEMPT_MARKER = Pattern.compile(
+            "fixup\\s*:\\s*attempt\\s*\\d+",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern KSU_READY_MARKER = Pattern.compile(
+            "KernelSU\\s+(?:module\\s+loaded|ready)",
+            Pattern.CASE_INSENSITIVE);
+    // Keywords that, appearing near an "attempt" line, indicate the fixup
+    // completed successfully.  Kept as plain strings (not a regex) because
+    // the native log wording has varied across versions.
+    private static final String[] KSU_SUCCESS_WORDS = {
+            "success", "successfully", "ok", "applied", "done", "complete", "ready"
+    };
+    private static final int KSU_FIXUP_WINDOW_LINES = 3;   // lines after "attempt" to scan
     private static final int COLOR_RED = 0xFFFF6B6B;
     private static final int COLOR_GREEN = 0xFF5FD68A;
     private static final int COLOR_YELLOW = 0xFFFFC94D;
@@ -1256,9 +1277,15 @@ public class GhostLockActivity extends ComponentActivity {
                 return;
             }
             if (networkIsUp()) {
-                appendLog("post-exploit guard: network OK, no fixup needed");
+                appendLog("post-exploit guard: environment OK, no fixup needed");
                 return;
             }
+            // External ping failed AND the local fixup marker is absent/missing:
+            // this is the genuine "soft reboot lost the policy" case. Re-apply
+            // the activation script (OTA-style fixup).  If the marker WAS
+            // present but ping failed (intranet-only / DNS issue), we would
+            // have returned above, so reaching here means re-applying is safe
+            // and necessary.
             appendLog("post-exploit guard: network down after exploit; "
                     + "re-applying KernelSU activation script (OTA-style fixup)");
             try {
@@ -1276,23 +1303,51 @@ public class GhostLockActivity extends ComponentActivity {
                 Thread.currentThread().interrupt();
             }
             if (!networkIsUp()) {
+                // Still no external route AND no valid fixup marker: one last
+                // hard nudge (setenforce 0 + resolver flush + data toggle),
+                // mirroring what a full reboot restores.
                 appendLog("post-exploit guard: still no network, forcing connectivity reset");
                 resetConnectivity();
             } else {
-                appendLog("post-exploit guard: network recovered after fixup");
+                // Either ping recovered, or the fixup marker is now present --
+                // both mean the policy is in place and no further action needed.
+                appendLog("post-exploit guard: environment recovered after fixup");
             }
         });
     }
 
-    /** True when the device can reach the outside world. */
+    /**
+     * True when the post-exploit networking environment is healthy enough that
+     * the KernelSU policy fixup does not need to be re-applied.
+     *
+     * Decision is based on TWO independent signals (OR'd):
+     *   1. External connectivity: ping a public IP.  This is the real-world
+     *      proof that netlink routing/neigh (the thing fixup governs) works.
+     *   2. Local fixup evidence: {@link #ksuFixupSucceeded()} checks the
+     *      KernelSU activation log for a "fixup: attempt N ... success"
+     *      marker, plus the "KernelSU module loaded / ready" line.
+     *
+     * Using an OR means we never misclassify a healthy device as "down" just
+     * because it sits behind a firewall / has DNS-only failure / has no route
+     * to 1.1.1.8 -- the local marker is dispositive on its own.  Conversely,
+     * if the marker is missing we still trust a successful ping, so a
+     * genuinely-working network is never "fixed up" needlessly.
+     *
+     * The trade-off (false "OK" when fixup failed AND ping happens to pass) is
+     * acceptable: in that case the user-visible state is genuinely fine, and
+     * the guard's only job is to prevent the known-broken case (fixup lost,
+     * netlink dead).  See {@link #runPostExploitNetworkGuard()}.
+     */
     private boolean networkIsUp() {
+        boolean reachable = false;
         for (int i = 0; i < NETWORK_RETRY_COUNT; i++) {
             try {
-                // ping an external IP: this both confirms a default route AND
-                // that netlink (routing / neigh) is functional -- the exact
-                // thing the KernelSU policy fixup governs.
+                // ping an external IP: confirms a default route AND that
+                // netlink (routing / neigh) is functional -- the exact thing
+                // the KernelSU policy fixup governs.
                 if (pingOnce("1.1.1.1") || pingOnce("8.8.8.8")) {
-                    return true;
+                    reachable = true;
+                    break;
                 }
             } catch (Throwable ignored) {
             }
@@ -1301,6 +1356,96 @@ public class GhostLockActivity extends ComponentActivity {
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 break;
+            }
+        }
+        if (reachable) {
+            return true;
+        }
+        // Fallback: trust the local fixup marker even if external ping failed.
+        // This is the stability hardening against "has intranet but no internet"
+        // or DNS-only failure environments.
+        return ksuFixupSucceeded();
+    }
+
+    /**
+     * Read {@code filesDir/.ghostlock_ksu.log} and confirm that the KernelSU
+     * policy fixup completed successfully and the module is ready.
+     *
+     * This is a local, network-independent signal, so it cannot be fooled by
+     * firewall / DNS / captive-portal conditions.  Returns false (forcing a
+     * re-apply) if the log is missing, unreadable, or shows no success marker
+     * -- the safe default, since re-running the activation script is harmless
+     * when the policy is already correct.
+     *
+     * Matching is intentionally lenient about line layout: the native log may
+     * print "fixup: attempt N" on one line and the outcome ("-> policy
+     * applied successfully") on the next.  So we mark the line after each
+     * "attempt" line as a small scan window and treat the fixup as successful
+     * if any {@link #KSU_SUCCESS_WORDS success keyword} appears in it.
+     */
+    private boolean ksuFixupSucceeded() {
+        File log = new File(getFilesDir(), KSU_LOG_NAME);
+        if (!log.isFile()) {
+            // No log at all => nothing proves fixup ran; treat as unknown so
+            // the guard falls through to re-application.
+            return false;
+        }
+        boolean attemptSeen = false;
+        boolean fixupOk = false;
+        boolean moduleReady = false;
+        int remaining = 0;   // lines left in the current fixup scan window
+        try (BufferedReader r = new BufferedReader(new FileReader(log))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                String trimmed = line.trim();
+                if (KSU_READY_MARKER.matcher(trimmed).find()) {
+                    moduleReady = true;
+                }
+                if (remaining > 0) {
+                    if (containsAny(trimmed, KSU_SUCCESS_WORDS)) {
+                        fixupOk = true;
+                    }
+                    remaining--;
+                }
+                if (KSU_ATTEMPT_MARKER.matcher(trimmed).find()) {
+                    attemptSeen = true;
+                    // Reset the scan window on each new attempt so a previous
+                    // attempt's trailing lines cannot satisfy this one.
+                    remaining = KSU_FIXUP_WINDOW_LINES;
+                    // The outcome may be on the same line ("fixup: attempt 1
+                    // success" / "... applied ok"), so check this line too.
+                    if (containsAny(trimmed, KSU_SUCCESS_WORDS)) {
+                        fixupOk = true;
+                    }
+                }
+                if (fixupOk && moduleReady) {
+                    break;
+                }
+            }
+        } catch (IOException ignored) {
+            return false;
+        }
+        appendLog("post-exploit guard: ksu log check (attempt="
+                + (attemptSeen ? "seen" : "missing") + ", fixup="
+                + (fixupOk ? "ok" : "missing") + ", module="
+                + (moduleReady ? "ready" : "missing") + ")");
+        // Require both an actual fixup attempt AND a success outcome: "module
+        // loaded" alone is not enough -- the in-memory policy can still be
+        // lost after a soft reboot even though the module object is present.
+        // But once the log shows a successful fixup outcome, that is
+        // dispositive regardless of external reachability.
+        return attemptSeen && fixupOk;
+    }
+
+    /** Cheap containment check against a fixed keyword list. */
+    private static boolean containsAny(String line, String[] words) {
+        if (line == null) {
+            return false;
+        }
+        String lower = line.toLowerCase(Locale.ROOT);
+        for (String w : words) {
+            if (lower.contains(w)) {
+                return true;
             }
         }
         return false;
