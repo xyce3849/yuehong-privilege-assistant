@@ -7,6 +7,7 @@ SELINUX_ENFORCE_PATH="${YHROOT_SELINUX_ENFORCE_PATH:-/sys/fs/selinux/enforce}"
 KSUD=
 KSU_APK=
 KSU_PACKAGE=
+WAIT_TIMEOUT="${YHROOT_WAIT_TIMEOUT:-10}"  # 等待用户手动 Jailbreak 的超时秒数
 
 case "$SCRIPT_PATH" in
   */.ghostlock_root.sh)
@@ -81,44 +82,46 @@ if [ "$(id -u)" -ne 0 ]; then
   exit 1
 fi
 
-if ! grep -q kernelsu /proc/modules 2>/dev/null; then
-  if [ -z "$KSUD" ] || [ ! -f "$KSUD" ]; then
-    echo '[!] ksud missing; cannot late-load' | tee -a "$LOG"
-    exit 1
-  fi
-  chmod 755 "$KSUD" 2>/dev/null
-  if [ ! -x "$KSUD" ]; then
-    echo '[!] ksud exists but is not executable' | tee -a "$LOG"
-    exit 1
-  fi
-  KVER=$(uname -r | cut -d. -f1-2)
-  AVER=$(uname -r | grep -o 'android[0-9]*' | head -1)
-  KMI="${AVER}-${KVER}"
-  if [ -z "$AVER" ] || [ -z "$KVER" ]; then KMI=android15-6.6; fi
-  echo "[*] late-load kmi=$KMI" >>"$LOG"
-  "$KSUD" late-load --kmi "$KMI" --allow-shell >>"$LOG" 2>&1
-  LATE_LOAD_RC=$?
-  echo "[*] late-load exit=$LATE_LOAD_RC" >>"$LOG"
-  if [ "$LATE_LOAD_RC" -ne 0 ]; then
-    exit "$LATE_LOAD_RC"
-  fi
-fi
-
-echo "[*] temporary su uid=$(id -u); watching kernelsu.ko" >>"$LOG"
-KSU_READY=0
-for i in $(seq 1 50); do
-  if grep -q kernelsu /proc/modules 2>/dev/null; then KSU_READY=1; break; fi
-  sleep 0.1
-done
-if [ "$KSU_READY" -ne 1 ]; then
-  echo '[!] KernelSU module not loaded; SELinux policy/enforcing unchanged' | tee -a "$LOG"
-  exit 1
-fi
-
-echo '[+] KernelSU module loaded' | tee -a "$LOG"
-echo "[*] kernelsu.ko loaded; root pid=$$ uid=$(id -u)" >>"$LOG"
+# =====================================================================
+# 新阶段 1: 无论 KernelSU 是否已加载，先置 SELinux 为 permissive
+# =====================================================================
+echo '[*] phase 1: setting SELinux permissive' | tee -a "$LOG"
 echo 0 > "$SELINUX_ENFORCE_PATH" 2>/dev/null
 echo "[*] setenforce 0 rc=$?" >>"$LOG"
+
+# =====================================================================
+# 新阶段 2: 如果用户态尚未加载 KernelSU，提示并等待手动 Jailbreak
+# =====================================================================
+if grep -q kernelsu /proc/modules 2>/dev/null; then
+  echo '[+] KernelSU already loaded; skipping manual jailbreak wait' | tee -a "$LOG"
+else
+  echo "[*] phase 2: waiting up to ${WAIT_TIMEOUT}s for manual Jailbreak" | tee -a "$LOG"
+  echo "[*] >>> 请现在打开 KernelSU Manager 并点击 Jailbreak <<<" | tee -a "$LOG"
+
+  KSU_READY=0
+  for i in $(seq 1 "$WAIT_TIMEOUT"); do
+    if grep -q kernelsu /proc/modules 2>/dev/null; then
+      KSU_READY=1
+      echo "[*] KernelSU detected after ~${i}s" >>"$LOG"
+      break
+    fi
+    sleep 1
+  done
+
+  if [ "$KSU_READY" -ne 1 ]; then
+    echo '[!] timeout: KernelSU module not loaded within window' | tee -a "$LOG"
+    echo "[*] restoring enforcing before exit" >>"$LOG"
+    echo 1 > "$SELINUX_ENFORCE_PATH" 2>/dev/null
+    exit 1
+  fi
+
+  echo '[+] KernelSU module loaded via manual Jailbreak' | tee -a "$LOG"
+fi
+
+# =====================================================================
+# 新阶段 3: 收尾 — 修复 SELinux 策略并恢复 enforcing
+# =====================================================================
+echo "[*] phase 3: finalizing SELinux policy" | tee -a "$LOG"
 
 FIXUP_RC=1
 for i in $(seq 1 10); do
