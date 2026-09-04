@@ -1,17 +1,20 @@
 #ifndef OFFSETS_JSON_H
 #define OFFSETS_JSON_H
 
-#include <stddef.h>
-#include "../kernels/offsets.h"
+#include "offsets.h"
 
-/* Load a kernel table from a JSON file (single object or array of objects)
- * and fill `out` for the kernel whose "release" equals `release`.  The format
- * matches tools/extract_rs/ghostlock-extract --format json, plus the
- * pselect_waiter_shift field.  The OTA-only caller zeroes `out` before loading,
- * so fields can only originate from the parsed JSON.  Returns 0 and sets *out on match; -1 when
- * no entry matches or the file is unreadable/malformed.  release_buf
- * receives a copy of the matched release string that stays valid after the
- * call. */
+/*
+ * Parse the runtime offsets file (offsets.json) and fill *out.
+ * Returns 0 on success, non-zero on failure.
+ *
+ * The file format is a JSON array; the first object's "symbols" map is read
+ * using g_symbol_map[] (field name -> offsetof(struct kernel_offsets, ...)).
+ *
+ * NOTE: fields consumed by W1.5 (off_modules_disabled,
+ * off_oplus_harden_init_succeed, off_oplus_guard_cleanup) are stored as
+ * ABSOLUTE kernel virtual addresses -- they must NOT be run through
+ * data_addr() / KIMAGE_TEXT_BASE at read time.
+ */
 int load_offsets_json(const char *path, const char *release,
                       struct kernel_offsets *out, char *release_buf,
                       size_t release_buf_cap);
