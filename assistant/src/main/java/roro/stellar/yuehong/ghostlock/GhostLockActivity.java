@@ -144,6 +144,7 @@ public class GhostLockActivity extends ComponentActivity {
     private Button otaButton;
     private Button autoRootButton;
     private Button importOffsetsButton;
+    private Button parseImageButton;
     private EditText otaUrlInput;
     private GhostLockOtaApi ghostLockOtaApi;
     private View rootView;
@@ -528,6 +529,7 @@ public class GhostLockActivity extends ComponentActivity {
         otaButton = findViewById(R.id.otaButton);
         autoRootButton = findViewById(R.id.autoRootButton);
         importOffsetsButton = findViewById(R.id.importOffsetsButton);
+        parseImageButton = findViewById(R.id.parseImageButton);
         otaUrlInput = findViewById(R.id.otaUrlInput);
         ghostLockOtaApi = new GhostLockOtaApi(this);
         DeviceInfoEntry.bind(this, deviceInfoButtonHost);
@@ -543,7 +545,8 @@ public class GhostLockActivity extends ComponentActivity {
         otaButton.setOnClickListener(v -> promptParseUrl());
         autoRootButton.setOnClickListener(v -> startAutomaticPrivilege());
         importOffsetsButton.setOnClickListener(v -> importOffsets());
-        installPressMotion(copyButton, otaButton, autoRootButton, importOffsetsButton);
+        parseImageButton.setOnClickListener(v -> parseOffsets());
+        installPressMotion(copyButton, otaButton, autoRootButton, importOffsetsButton, parseImageButton);
         playEntryMotion();
     }
 
@@ -1550,6 +1553,8 @@ public class GhostLockActivity extends ComponentActivity {
         boolean busy = state == RunState.RUNNING || automaticFlowRunning.get();
         otaButton.setEnabled(!busy);
         autoRootButton.setEnabled(!busy);
+        importOffsetsButton.setEnabled(!busy);
+        parseImageButton.setEnabled(!busy);
         otaButton.setText(state == RunState.RUNNING ? R.string.ghostlock_action_running : R.string.ghostlock_action_parse_ota);
         autoRootButton.setText(busy ? R.string.ghostlock_action_running : R.string.ghostlock_action_start_privilege);
     }
