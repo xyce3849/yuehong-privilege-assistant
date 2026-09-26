@@ -127,6 +127,10 @@ public class GhostLockActivity extends ComponentActivity {
     private Button autoRootButton;
     private EditText otaUrlInput;
     private RadioGroup strategyGroup;
+    private Button importOffsetsButton;
+    private Button exportOffsetsButton;
+    private Button parseImageButton;
+    private Button parseOtaButton;
     private File dynamicBaseLibrary;
     private String dynamicBaselineId = "IONSTACK-P10-CP2A.260605.012";
     private GhostLockOtaApi ghostLockOtaApi;
@@ -467,6 +471,10 @@ public class GhostLockActivity extends ComponentActivity {
         autoRootButton = findViewById(R.id.autoRootButton);
         otaUrlInput = findViewById(R.id.otaUrlInput);
         strategyGroup = findViewById(R.id.strategyGroup);
+        importOffsetsButton = findViewById(R.id.importOffsetsButton);
+        exportOffsetsButton = findViewById(R.id.exportOffsetsButton);
+        parseImageButton = findViewById(R.id.parseImageButton);
+        parseOtaButton = findViewById(R.id.parseOtaButton);
         ghostLockOtaApi = new GhostLockOtaApi(this);
 
         applyWindowInsetsPadding();
@@ -478,7 +486,14 @@ public class GhostLockActivity extends ComponentActivity {
 
         copyButton.setOnClickListener(v -> copyLogs());
         autoRootButton.setOnClickListener(v -> startSelectedPrivilege());
-        installPressMotion(copyButton, autoRootButton);
+        // 恢复 ghostlock-app 参考版的高级动作入口：
+        // 导入 offsets.json / 导出 offsets.json / 解析镜像(boot.img) / 解析 OTA 并执行提权。
+        importOffsetsButton.setOnClickListener(v -> importOffsets());
+        exportOffsetsButton.setOnClickListener(v -> exportOffsets());
+        parseImageButton.setOnClickListener(v -> parseOffsets());
+        parseOtaButton.setOnClickListener(v -> promptParseUrl());
+        installPressMotion(copyButton, autoRootButton,
+                importOffsetsButton, exportOffsetsButton, parseImageButton, parseOtaButton);
         playEntryMotion();
     }
 
