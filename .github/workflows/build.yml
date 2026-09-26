@@ -1,0 +1,128 @@
+name: Android Build
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+    inputs:
+      variant:
+        description: Build variant
+        required: true
+        default: Release
+        type: choice
+        options:
+          - Debug
+          - Release
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+
+    env:
+      ANDROID_NDK: "29.0.13113456"
+      CMAKE_VERSION: "3.22.1"
+      GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Accept Android SDK licenses
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+
+      - name: Install required Android SDK tools
+        shell: bash
+        run: |
+          sdkmanager \
+            "platform-tools" \
+            "ndk;${ANDROID_NDK}" \
+            "cmake;${CMAKE_VERSION}"
+
+      - name: Verify Android toolchain
+        shell: bash
+        run: |
+          echo "Java:"
+          java -version
+
+          echo
+          echo "Android SDK:"
+          echo "${ANDROID_SDK_ROOT}"
+
+          echo
+          echo "Installed SDK packages:"
+          sdkmanager --list_installed | head -100
+
+          echo
+          echo "Checking NDK:"
+          test -d "${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK}"
+
+          echo "Checking CMake:"
+          test -d "${ANDROID_SDK_ROOT}/cmake/${CMAKE_VERSION}"
+
+      - name: Make Gradle wrapper executable
+        run: chmod +x ./gradlew
+
+      - name: Select build variant
+        id: variant
+        shell: bash
+        run: |
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_dispatch" ]]; then
+            echo "name=${{ inputs.variant }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=Release" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Show Gradle modules
+        run: ./gradlew projects --no-daemon
+
+      - name: Build Android APK
+        shell: bash
+        run: |
+          ./gradlew ":manager:assemble${{ steps.variant.outputs.name }}" \
+            --no-daemon \
+            --stacktrace
+
+      - name: Collect APK
+        shell: bash
+        run: |
+          mkdir -p artifacts/apk
+
+          find . \
+            -type f \
+            -path "*/build/outputs/apk/*.apk" \
+            -exec cp {} artifacts/apk/ \;
+
+          echo "Generated APK files:"
+          find artifacts/apk -type f -name "*.apk" -print
+
+          test -n "$(find artifacts/apk -type f -name '*.apk' -print -quit)"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: yuehong-privilege-assistant-${{ steps.variant.outputs.name }}
+          path: artifacts/apk/
+          if-no-files-found: error
+          retention-days: 14
