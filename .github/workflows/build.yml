@@ -46,6 +46,11 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
+        with:
+          # setup-android@v3 defaults to installing the obsolete `tools` package,
+          # which no longer exists in the current Android SDK repository.
+          packages: platform-tools
+          accept-android-sdk-licenses: true
 
       - name: Accept Android SDK licenses
         shell: bash
@@ -57,6 +62,8 @@ jobs:
         run: |
           sdkmanager \
             "platform-tools" \
+            "platforms;android-37" \
+            "build-tools;36.0.0" \
             "ndk;${ANDROID_NDK}" \
             "cmake;${CMAKE_VERSION}"
 
