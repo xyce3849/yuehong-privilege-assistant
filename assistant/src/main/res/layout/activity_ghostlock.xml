@@ -141,6 +141,72 @@
             android:textColorHint="@color/ghostlock_text_secondary"
             android:textSize="13sp" />
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/importOffsetsButton"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/ghostlock_bg_button_ghost"
+                android:stateListAnimator="@null"
+                android:text="@string/ghostlock_action_import_offsets"
+                android:textAllCaps="false"
+                android:textColor="@color/ghostlock_log_title"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/exportOffsetsButton"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/ghostlock_bg_button_ghost"
+                android:stateListAnimator="@null"
+                android:text="@string/ghostlock_action_export_offsets"
+                android:textAllCaps="false"
+                android:textColor="@color/ghostlock_log_title"
+                android:textSize="11sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/parseImageButton"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:background="@drawable/ghostlock_bg_button_ghost"
+                android:stateListAnimator="@null"
+                android:text="@string/ghostlock_action_parse"
+                android:textAllCaps="false"
+                android:textColor="@color/ghostlock_log_title"
+                android:textSize="11sp" />
+
+            <Button
+                android:id="@+id/parseOtaButton"
+                android:layout_width="0dp"
+                android:layout_height="32dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/ghostlock_bg_button_ghost"
+                android:stateListAnimator="@null"
+                android:text="@string/ghostlock_action_parse_ota"
+                android:textAllCaps="false"
+                android:textColor="@color/ghostlock_log_title"
+                android:textSize="11sp" />
+        </LinearLayout>
+
 
     </LinearLayout>
 
