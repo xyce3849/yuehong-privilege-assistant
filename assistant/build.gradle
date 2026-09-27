@@ -37,6 +37,9 @@ android {
         buildConfigField 'String', 'ROM_PROTOCOL_V2_KEY_ID', buildConfigString(serverProperty('romProtocolV2KeyId'))
         buildConfigField 'String', 'SERVER_CHANNEL_JOIN_URL', buildConfigString(serverProperty('channelJoinUrl'))
         buildConfigField 'String', 'SERVER_UPDATE_URL', buildConfigString(serverProperty('updateUrl'))
+        // 期望的签名证书 SHA-256（server.properties: officialCertificateSha256）。
+        // 留空 = 跳过签名校验，放行自签名构建包；填写后仅放行匹配指纹的安装包。
+        buildConfigField 'String', 'OFFICIAL_CERT_SHA256', buildConfigString(serverProperty('officialCertificateSha256'))
 
         consumerProguardFiles 'proguard-rules.pro'
     }
