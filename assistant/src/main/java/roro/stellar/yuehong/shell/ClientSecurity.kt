@@ -13,18 +13,24 @@ import java.security.SecureRandom
 
 /** Security checks shared by every server-facing client path. */
 internal object OfficialAppSignature {
-    private val expectedCertificateSha256 = hexToBytes(
-        "c1158510fe8d23bcd37956c532ff4d34f4cce1f206bf36c8fa32cea7cf0bdc86",
-    )
+    // 期望的签名证书 SHA-256 由 server.properties 的 officialCertificateSha256
+    // 在构建期注入（BuildConfig.OFFICIAL_CERT_SHA256）。留空表示跳过签名校验，
+    // 允许自签名构建包访问服务端接口；填写后则只放行匹配该指纹的安装包。
+    private val expectedCertificateSha256: ByteArray? = BuildConfig.OFFICIAL_CERT_SHA256
+        .trim()
+        .replace(":", "")
+        .takeIf { it.isNotEmpty() }
+        ?.let(::hexToBytes)
 
     fun requireOfficial(context: Context) {
-        if (context.packageName != BuildConfig.APPLICATION_ID || !isOfficial(context)) {
+        val expected = expectedCertificateSha256 ?: return
+        if (context.packageName != BuildConfig.APPLICATION_ID || !isOfficial(context, expected)) {
             throw SecurityException("检测到非官方签名版本，为保护设备安全已禁止连接服务器")
         }
     }
 
     @Suppress("DEPRECATION")
-    private fun isOfficial(context: Context): Boolean = runCatching {
+    private fun isOfficial(context: Context, expected: ByteArray): Boolean = runCatching {
         val packageInfo = context.packageManager.getPackageInfo(
             context.packageName,
             PackageManager.GET_SIGNING_CERTIFICATES,
@@ -32,7 +38,7 @@ internal object OfficialAppSignature {
         val signers = packageInfo.signingInfo?.apkContentsSigners.orEmpty()
         signers.size == 1 && MessageDigest.isEqual(
             MessageDigest.getInstance("SHA-256").digest(signers.single().toByteArray()),
-            expectedCertificateSha256,
+            expected,
         )
     }.getOrDefault(false)
 
