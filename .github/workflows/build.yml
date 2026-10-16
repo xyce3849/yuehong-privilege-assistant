@@ -142,13 +142,57 @@ jobs:
           fi
 
       # ------------------------------------------------------------
-      # 8. Show Gradle modules
+      # 8. Restore release signing from secrets
+      #
+      # 公开源码不附带发行密钥或签名属性（keystore.properties 已被
+      # .gitignore 忽略），Release 构建必须由构建者注入签名材料。
+      # 这里把 GitHub Actions 仓库密钥还原成 keystore.properties +
+      # release.keystore，供 manager/build.gradle 的 sign 签名配置读取。
+      # 仅 Release 变体需要；Debug 使用 AGP 自动生成的调试证书，跳过本步。
+      # 所需仓库密钥（Settings > Secrets and variables > Actions）：
+      #   APPS_KEYSTORE          —— release.keystore 的 base64 编码内容（单行）
+      #   APPS_KEYSTORE_PASSWORD —— 密钥库口令
+      #   APPS_KEY_ALIAS         —— 密钥别名
+      #   APPS_KEY_PASSWORD      —— 密钥口令
+      # ------------------------------------------------------------
+      - name: Restore release signing
+        if: steps.variant.outputs.name == 'Release'
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.APPS_KEYSTORE }}
+          KEYSTORE_PASSWORD: ${{ secrets.APPS_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.APPS_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.APPS_KEY_PASSWORD }}
+        run: |
+          set -e
+
+          if [ -z "${KEYSTORE_BASE64}" ]; then
+            echo "::error::Release signing secret APPS_KEYSTORE is not set. Add APPS_KEYSTORE, APPS_KEYSTORE_PASSWORD, APPS_KEY_ALIAS and APPS_KEY_PASSWORD under Settings > Secrets and variables > Actions."
+            exit 1
+          fi
+
+          # 还原密钥库到仓库根目录（.keystore 已被 .gitignore 忽略，不会提交）。
+          echo "${KEYSTORE_BASE64}" | base64 -d > release.keystore
+
+          # 生成 build.gradle 读取的 keystore.properties（同样已被忽略）。
+          {
+            echo "storeFile=release.keystore"
+            echo "storePassword=${KEYSTORE_PASSWORD}"
+            echo "keyAlias=${KEY_ALIAS}"
+            echo "keyPassword=${KEY_PASSWORD}"
+          } > keystore.properties
+
+          echo "========== Restored signing artifacts =========="
+          ls -l release.keystore keystore.properties
+
+      # ------------------------------------------------------------
+      # 9. Show Gradle modules
       # ------------------------------------------------------------
       - name: Show Gradle modules
         run: ./gradlew projects --no-daemon
 
       # ------------------------------------------------------------
-      # 9. Build Android APK
+      # 10. Build Android APK
       # ------------------------------------------------------------
       - name: Build Android APK
         shell: bash
@@ -158,7 +202,7 @@ jobs:
             --stacktrace
 
       # ------------------------------------------------------------
-      # 10. Collect APK
+      # 11. Collect APK
       # ------------------------------------------------------------
       - name: Collect APK
         shell: bash
@@ -185,7 +229,7 @@ jobs:
             -print -quit)"
 
       # ------------------------------------------------------------
-      # 11. Upload APK
+      # 12. Upload APK
       # ------------------------------------------------------------
       - name: Upload APK
         uses: actions/upload-artifact@v4
