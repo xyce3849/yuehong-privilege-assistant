@@ -1,13 +1,13 @@
 # Copy this file to server.properties for a private connected build.
 # Keep server.properties private; it is ignored by Git and source packages.
-compatibilityEndpoint=
-moduleId=
-protocolV2Endpoint=
-channelEndpoint=
-protocolV2PublicKey=
-protocolV2KeyId=
-romProtocolV2Endpoint=
-romProtocolV2PublicKey=
-romProtocolV2KeyId=
-channelJoinUrl=
-updateUrl=
+compatibilityEndpoint=https://jx.yhyun.asia/dmkpz/api.php
+moduleId=yhtq
+protocolV2Endpoint=https://jx.yhyun.asia/dmkpz/api.php
+channelEndpoint=https://jx.yhyun.asia/dmkpz/channel_api.php
+protocolV2PublicKey=WxkxB3qo74Nqxmtxfk7rPGumTuGOPAMmuVaGPYzRZaY
+protocolV2KeyId=2fa6614a65bbc75c
+romProtocolV2Endpoint=https://rom.yhyun.asia/api.php?route=%2Fapi%2Fota%2Fresolve
+romProtocolV2PublicKey=mChs-WrNG_eGrK8z8U2x0xZxLj_AuAe1V3z6KQJ2kPA
+romProtocolV2KeyId=8cf23c2dd4df5765
+channelJoinUrl=https://pd.qq.com/s/4z9zfg2h3?b=5
+updateUrl=https://yhyun.asia/
