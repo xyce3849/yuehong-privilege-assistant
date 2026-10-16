@@ -5,10 +5,12 @@ on:
     branches:
       - main
       - master
+
   pull_request:
     branches:
       - main
       - master
+
   workflow_dispatch:
     inputs:
       variant:
@@ -31,12 +33,20 @@ jobs:
     env:
       ANDROID_NDK: "29.0.13113456"
       CMAKE_VERSION: "3.22.1"
+      ANDROID_PLATFORM: "android-37.0"
+      ANDROID_BUILD_TOOLS: "36.0.0"
       GRADLE_OPTS: "-Dorg.gradle.jvmargs=-Xmx4g -Dfile.encoding=UTF-8"
 
     steps:
+      # ------------------------------------------------------------
+      # 1. Checkout
+      # ------------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
 
+      # ------------------------------------------------------------
+      # 2. JDK 21
+      # ------------------------------------------------------------
       - name: Set up JDK 21
         uses: actions/setup-java@v5
         with:
@@ -44,46 +54,83 @@ jobs:
           java-version: "21"
           cache: gradle
 
+      # ------------------------------------------------------------
+      # 3. Android SDK
+      #
+      # setup-android@v4 自己负责接受 SDK licenses。
+      # 不再额外执行 yes | sdkmanager --licenses。
+      # ------------------------------------------------------------
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ""
+          accept-android-sdk-licenses: true
 
-      - name: Accept Android SDK licenses
+      # ------------------------------------------------------------
+      # 4. Install required Android SDK packages
+      #
+      # Android 37 当前平台包为 android-37.0。
+      # ------------------------------------------------------------
+      - name: Install required Android SDK packages
         shell: bash
         run: |
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          set -e
 
-      - name: Install required Android SDK tools
-        shell: bash
-        run: |
           sdkmanager \
             "platform-tools" \
+            "platforms;${ANDROID_PLATFORM}" \
+            "build-tools;${ANDROID_BUILD_TOOLS}" \
             "ndk;${ANDROID_NDK}" \
             "cmake;${CMAKE_VERSION}"
 
+      # ------------------------------------------------------------
+      # 5. Verify Android toolchain
+      # ------------------------------------------------------------
       - name: Verify Android toolchain
         shell: bash
         run: |
-          echo "Java:"
+          set -e
+
+          echo "========== Java =========="
           java -version
 
           echo
-          echo "Android SDK:"
-          echo "${ANDROID_SDK_ROOT}"
+          echo "========== Android SDK =========="
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
 
           echo
-          echo "Installed SDK packages:"
-          sdkmanager --list_installed | head -100
+          echo "========== Installed SDK packages =========="
+          sdkmanager --list_installed > /tmp/installed-packages.txt
+          head -100 /tmp/installed-packages.txt
 
           echo
-          echo "Checking NDK:"
+          echo "========== Check SDK Platform =========="
+          test -d "${ANDROID_SDK_ROOT}/platforms/${ANDROID_PLATFORM}"
+
+          echo
+          echo "========== Check Build Tools =========="
+          test -d "${ANDROID_SDK_ROOT}/build-tools/${ANDROID_BUILD_TOOLS}"
+
+          echo
+          echo "========== Check NDK =========="
           test -d "${ANDROID_SDK_ROOT}/ndk/${ANDROID_NDK}"
 
-          echo "Checking CMake:"
+          echo
+          echo "========== Check CMake =========="
           test -d "${ANDROID_SDK_ROOT}/cmake/${CMAKE_VERSION}"
 
+          echo
+          echo "Android toolchain verification passed."
+
+      # ------------------------------------------------------------
+      # 6. Make Gradle wrapper executable
+      # ------------------------------------------------------------
       - name: Make Gradle wrapper executable
         run: chmod +x ./gradlew
 
+      # ------------------------------------------------------------
+      # 7. Select build variant
+      # ------------------------------------------------------------
       - name: Select build variant
         id: variant
         shell: bash
@@ -94,9 +141,15 @@ jobs:
             echo "name=Release" >> "$GITHUB_OUTPUT"
           fi
 
+      # ------------------------------------------------------------
+      # 8. Show Gradle modules
+      # ------------------------------------------------------------
       - name: Show Gradle modules
         run: ./gradlew projects --no-daemon
 
+      # ------------------------------------------------------------
+      # 9. Build Android APK
+      # ------------------------------------------------------------
       - name: Build Android APK
         shell: bash
         run: |
@@ -104,9 +157,14 @@ jobs:
             --no-daemon \
             --stacktrace
 
+      # ------------------------------------------------------------
+      # 10. Collect APK
+      # ------------------------------------------------------------
       - name: Collect APK
         shell: bash
         run: |
+          set -e
+
           mkdir -p artifacts/apk
 
           find . \
@@ -114,11 +172,21 @@ jobs:
             -path "*/build/outputs/apk/*.apk" \
             -exec cp {} artifacts/apk/ \;
 
-          echo "Generated APK files:"
-          find artifacts/apk -type f -name "*.apk" -print
+          echo "========== Generated APK files =========="
 
-          test -n "$(find artifacts/apk -type f -name '*.apk' -print -quit)"
+          find artifacts/apk \
+            -type f \
+            -name "*.apk" \
+            -print
 
+          test -n "$(find artifacts/apk \
+            -type f \
+            -name '*.apk' \
+            -print -quit)"
+
+      # ------------------------------------------------------------
+      # 11. Upload APK
+      # ------------------------------------------------------------
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
