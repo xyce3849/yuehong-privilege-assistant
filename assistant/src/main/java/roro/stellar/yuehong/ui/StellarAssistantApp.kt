@@ -104,17 +104,6 @@ fun StellarAssistantApp() {
             activity.startActivity(intent)
         }
 
-        fun openStellarOriginalMode() {
-            val activity = context as? Activity ?: return
-            val intent = Intent().apply {
-                setClassName(
-                    context.packageName,
-                    "roro.stellar.yuehong.activities.MainActivity",
-                )
-            }
-            activity.startActivity(intent)
-        }
-
         AnimatedContent(
             targetState = page,
             transitionSpec = {
@@ -178,7 +167,6 @@ fun StellarAssistantApp() {
                     onOpenDfRoot = ::openDfRootMode,
                     onOpenStellar = ::openStellarMode,
                     onOpenVivoWired = ::openVivoWiredMode,
-                    onOpenStellarOriginal = ::openStellarOriginalMode,
                 )
             }
         }

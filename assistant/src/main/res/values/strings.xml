@@ -198,7 +198,6 @@
     <string name="necessary_permission_app_list_hint">Allow app-list access in the system permission manager, then check again.</string>
     <string name="necessary_permissions_retry">Check again</string>
 
-    <string name="mode_stellar_original_open">Stellar original manager</string>
     <string name="ghostlock_import_offsets">Import offsets.json</string>
     <string name="ghostlock_export_offsets">Export offsets.json</string>
     <string name="ghostlock_parse_image">Parse image</string>
