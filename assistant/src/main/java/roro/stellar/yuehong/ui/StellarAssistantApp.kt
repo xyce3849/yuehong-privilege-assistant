@@ -38,6 +38,13 @@ private enum class AppPage {
     ModeSelection,
 }
 
+/**
+ * 启动验证旁路：作者原版会要求远程授权 / 频道验证才能进入 App。
+ * 设为 true 时，从入口页直接跳过验证环节（仍保留权限申请页），
+ * 使 App 可脱离作者服务器独立使用。改为 false 即恢复作者原版行为。
+ */
+private const val SKIP_STARTUP_VERIFICATION: Boolean = true
+
 @Composable
 fun StellarAssistantApp() {
     StellarTheme {
@@ -46,7 +53,16 @@ fun StellarAssistantApp() {
         val startupVerificationApi = remember(context.applicationContext) {
             HttpStartupVerificationApi(context.applicationContext)
         }
-        var page by rememberSaveable { mutableStateOf(AppPage.Announcement) }
+        var page by rememberSaveable {
+            mutableStateOf(
+                if (SKIP_STARTUP_VERIFICATION) {
+                    if (NecessaryPermissions.allGranted(context)) AppPage.ModeSelection
+                    else AppPage.NecessaryPermissions
+                } else {
+                    AppPage.Announcement
+                },
+            )
+        }
         var startupRefreshGeneration by rememberSaveable { mutableIntStateOf(0) }
         val kernelRelease = remember {
             runCatching { Os.uname().release }.getOrNull().orEmpty().ifBlank {
@@ -116,7 +132,8 @@ fun StellarAssistantApp() {
                     api = startupVerificationApi,
                     refreshGeneration = startupRefreshGeneration,
                     onContinue = { verification ->
-                        if (!verification.authorized) {
+                        val authorized = SKIP_STARTUP_VERIFICATION || verification.authorized
+                        if (!authorized) {
                             page = AppPage.ChannelVerification
                         } else if (NecessaryPermissions.allGranted(context)) {
                             page = AppPage.ModeSelection

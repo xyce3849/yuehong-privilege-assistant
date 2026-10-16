@@ -36,6 +36,38 @@ discover_ksud() {
     echo "[*] using staged ksud=$KSUD" >>"$LOG"
     return 0
   fi
+
+  # 1) 优先使用调用方显式指定的 KernelSU 管理器包名（UI 所选，或自定义包名
+  #    io.github.xyce3849.kmanager）。按包名定位其 libksud.so，使选择具有权威性。
+  if [ -n "$KSU_PACKAGE" ]; then
+    for CANDIDATE in "$DATA_APP_ROOT"/"$KSU_PACKAGE"*/lib/arm64/libksud.so; do
+      [ -f "$CANDIDATE" ] || continue
+      KSUD="$CANDIDATE"
+      KSU_APK="${CANDIDATE%/lib/arm64/libksud.so}/base.apk"
+      echo "[*] using ksud for selected package=$KSU_PACKAGE" >>"$LOG"
+      return 0
+    done
+    for CANDIDATE in "$DATA_APP_ROOT"/*"$KSU_PACKAGE"*/lib/arm64/libksud.so; do
+      [ -f "$CANDIDATE" ] || continue
+      KSUD="$CANDIDATE"
+      KSU_APK="${CANDIDATE%/lib/arm64/libksud.so}/base.apk"
+      echo "[*] using ksud (fuzzy) for package=$KSU_PACKAGE" >>"$LOG"
+      return 0
+    done
+  fi
+
+  # 2) 自定义包名显式兜底（保险）：io.github.xyce3849.kmanager
+  for CANDIDATE in "$DATA_APP_ROOT"/io.github.xyce3849.kmanager*/lib/arm64/libksud.so; do
+    [ -f "$CANDIDATE" ] || continue
+    KSUD="$CANDIDATE"
+    KSU_APK="${CANDIDATE%/lib/arm64/libksud.so}/base.apk"
+    KSU_PACKAGE=$(package_for_apk "$KSU_APK")
+    [ -n "$KSU_PACKAGE" ] || KSU_PACKAGE=io.github.xyce3849.kmanager
+    echo "[*] using ksud for custom package io.github.xyce3849.kmanager" >>"$LOG"
+    return 0
+  done
+
+  # 3) 全盘扫描（作者原逻辑兜底）
   for CANDIDATE in "$DATA_APP_ROOT"/*/*/lib/arm64/libksud.so; do
     [ -f "$CANDIDATE" ] || continue
     APP_DIR=${CANDIDATE%/lib/arm64/libksud.so}
