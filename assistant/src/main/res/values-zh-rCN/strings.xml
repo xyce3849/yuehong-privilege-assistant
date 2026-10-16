@@ -195,4 +195,10 @@
     <string name="necessary_permission_missing">需要授权</string>
     <string name="necessary_permission_app_list_hint">请在系统应用权限管理中允许读取应用列表，授权后点击重新检查。</string>
     <string name="necessary_permissions_retry">重新检查</string>
+
+    <string name="mode_stellar_original_open">Stellar 原管理器</string>
+    <string name="ghostlock_import_offsets">导入 offsets.json</string>
+    <string name="ghostlock_export_offsets">导出 offsets.json</string>
+    <string name="ghostlock_parse_image">解析镜像</string>
+    <string name="ghostlock_five_x_switch">5.x 内核支持（beta）</string>
 </resources>

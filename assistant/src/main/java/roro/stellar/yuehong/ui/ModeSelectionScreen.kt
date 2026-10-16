@@ -54,6 +54,7 @@ internal fun ModeSelectionScreen(
     onOpenDfRoot: () -> Unit,
     onOpenStellar: () -> Unit,
     onOpenVivoWired: () -> Unit,
+    onOpenStellarOriginal: () -> Unit,
 ) {
     val context = LocalContext.current
     var selectedPackage by remember(context) {
@@ -153,6 +154,15 @@ internal fun ModeSelectionScreen(
             ) {
                 Text(
                     text = stringResource(R.string.mode_vivo_wired_open),
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+            MotionButton(
+                modifier = Modifier.fillMaxWidth(),
+                onClick = onOpenStellarOriginal,
+            ) {
+                Text(
+                    text = stringResource(R.string.mode_stellar_original_open),
                     fontWeight = FontWeight.SemiBold,
                 )
             }

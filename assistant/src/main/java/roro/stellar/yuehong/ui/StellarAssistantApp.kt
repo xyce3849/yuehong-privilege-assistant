@@ -3,7 +3,6 @@ package roro.stellar.yuehong.ui
 import android.app.Activity
 import android.content.Intent
 import android.os.Build
-import android.system.Os
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -64,14 +63,9 @@ fun StellarAssistantApp() {
             )
         }
         var startupRefreshGeneration by rememberSaveable { mutableIntStateOf(0) }
-        val kernelRelease = remember {
-            runCatching { Os.uname().release }.getOrNull().orEmpty().ifBlank {
-                System.getProperty("os.version", "unknown")
-            }
-        }
-        val ghostLockKernelAvailable = remember(kernelRelease) {
-            GHOSTLOCK_KERNEL_PATTERN.containsMatchIn(kernelRelease)
-        }
+        // GhostLock 入口常开：内核是否真正支持改由 GhostLockActivity 运行时校验
+        // （5.x 内核支持 beta 开关在 GhostLock 页内，开启后运行时放行）。
+        val ghostLockKernelAvailable = true
         val dfRootPlatformAvailable = remember {
             Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
         }
@@ -105,6 +99,17 @@ fun StellarAssistantApp() {
                 setClassName(
                     context.packageName,
                     "roro.stellar.manager.ui.features.wired.VivoWiredActivity",
+                )
+            }
+            activity.startActivity(intent)
+        }
+
+        fun openStellarOriginalMode() {
+            val activity = context as? Activity ?: return
+            val intent = Intent().apply {
+                setClassName(
+                    context.packageName,
+                    "roro.stellar.yuehong.activities.MainActivity",
                 )
             }
             activity.startActivity(intent)
@@ -173,13 +178,12 @@ fun StellarAssistantApp() {
                     onOpenDfRoot = ::openDfRootMode,
                     onOpenStellar = ::openStellarMode,
                     onOpenVivoWired = ::openVivoWiredMode,
+                    onOpenStellarOriginal = ::openStellarOriginalMode,
                 )
             }
         }
     }
 }
-
-private val GHOSTLOCK_KERNEL_PATTERN = Regex("^6\\.")
 
 @Composable
 private fun AnnouncementGate(

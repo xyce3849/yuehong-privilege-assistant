@@ -42,6 +42,7 @@ import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Spinner;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -98,6 +99,7 @@ public class GhostLockActivity extends ComponentActivity {
     private static final String PREFS = "ghostlock_prefs";
     private static final String PREF_CPU_PAIR = "cpu_pair";
     private static final String PREF_BUILTIN_OFFSET_STATUS = "builtin_offset_status";
+    private static final String PREF_ALLOW_TEST_KERNEL = "allow_test_kernel";
     private static final String STATUS_FAILED_PREFIX = "failed:";
     private static final String STATUS_SUCCESS_PREFIX = "success:";
     private static final int MAX_NATIVE_ATTEMPTS = 2;
@@ -122,6 +124,10 @@ public class GhostLockActivity extends ComponentActivity {
     private Button copyButton;
     private Button autoRootButton;
     private EditText otaUrlInput;
+    private Button importOffsetsButton;
+    private Button exportOffsetsButton;
+    private Button parseImageButton;
+    private Switch fiveXKernelSwitch;
     private GhostLockOtaApi ghostLockOtaApi;
     private View rootView;
     private int cpuPairIndex;
@@ -336,6 +342,10 @@ public class GhostLockActivity extends ComponentActivity {
 
     /** True when the current exact uname release is bundled by upstream. */
     private boolean isBuiltInKernelSupported(String version) {
+        if (getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_ALLOW_TEST_KERNEL, false)) {
+            // 5.x 内核支持（beta）：开关开启时放行所有内核，供测试内核使用。
+            return true;
+        }
         for (String supported : SupportedKernels.UNAMES) {
             if (supported.equals(version)) {
                 return true;
@@ -459,6 +469,10 @@ public class GhostLockActivity extends ComponentActivity {
         copyButton = findViewById(R.id.copyButton);
         autoRootButton = findViewById(R.id.autoRootButton);
         otaUrlInput = findViewById(R.id.otaUrlInput);
+        importOffsetsButton = findViewById(R.id.importOffsetsButton);
+        exportOffsetsButton = findViewById(R.id.exportOffsetsButton);
+        parseImageButton = findViewById(R.id.parseImageButton);
+        fiveXKernelSwitch = findViewById(R.id.fiveXKernelSwitch);
         ghostLockOtaApi = new GhostLockOtaApi(this);
 
         applyWindowInsetsPadding();
@@ -470,7 +484,16 @@ public class GhostLockActivity extends ComponentActivity {
 
         copyButton.setOnClickListener(v -> copyLogs());
         autoRootButton.setOnClickListener(v -> startSelectedPrivilege());
+        importOffsetsButton.setOnClickListener(v -> importOffsets());
+        exportOffsetsButton.setOnClickListener(v -> exportOffsets());
+        parseImageButton.setOnClickListener(v -> parseOffsets());
         installPressMotion(copyButton, autoRootButton);
+        installPressMotion(importOffsetsButton, exportOffsetsButton, parseImageButton);
+        fiveXKernelSwitch.setChecked(
+                getSharedPreferences(PREFS, MODE_PRIVATE).getBoolean(PREF_ALLOW_TEST_KERNEL, false));
+        fiveXKernelSwitch.setOnCheckedChangeListener(
+                (buttonView, isChecked) -> getSharedPreferences(PREFS, MODE_PRIVATE)
+                        .edit().putBoolean(PREF_ALLOW_TEST_KERNEL, isChecked).apply());
         playEntryMotion();
     }
 
